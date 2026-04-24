@@ -1,2 +1,2 @@
 # Fraudetection
-Team: SafeNet  https://km.edu.uz/uz/hakaton  
+Team: SafeNet  https://km.edu.uz/uz/hakaton  Fisrt raund
