@@ -245,6 +245,101 @@ def orgatish_va_saqlash(
     return artifact
 
 
+def tezkor_orgatish_va_saqlash(df: pd.DataFrame, progress=None) -> dict:
+    """
+    Streamlit Cloud cold-start uchun yengil model yaratadi.
+    To'liq 5-fold training UI ichidagi O'rgatish tabida qoladi.
+    """
+    if len(df) > 12_000:
+        train_df = df.groupby(NISHON, group_keys=False).sample(
+            frac=12_000 / len(df),
+            random_state=42,
+        )
+    else:
+        train_df = df
+
+    if progress:
+        progress.progress(20, "Tezkor model uchun sample tayyorlandi...")
+
+    X = train_df[XUSUSIYATLAR].copy()
+    y = train_df[NISHON].copy()
+    X_o, X_t, y_o, y_t = train_test_split(
+        X,
+        y,
+        test_size=0.25,
+        stratify=y,
+        random_state=42,
+    )
+
+    pipe = _pipeline_qur(daraxt_soni=60, max_chuqurlik=12, min_barglar=5)
+
+    if progress:
+        progress.progress(45, "Tezkor RandomForest o'rgatilmoqda...")
+
+    pipe.fit(X_o, y_o)
+
+    if progress:
+        progress.progress(75, "Metrikalar hisoblanmoqda...")
+
+    y_ehtimol = pipe.predict_proba(X_t)[:, 1]
+    chegara = _optimal_chegara(y_t.values, y_ehtimol)
+    y_bashorat = (y_ehtimol >= chegara).astype(int)
+
+    ohe_nomlar = list(
+        pipe.named_steps["oldindan_ishlash"]
+        .named_transformers_["kategoriyali"]
+        .get_feature_names_out(KATEGORIYALI)
+    )
+    barcha_nomlar = RAQAMLI + BINARY + ohe_nomlar
+    muhimlik_df = pd.DataFrame(
+        {
+            "xususiyat": barcha_nomlar,
+            "muhimlik": pipe.named_steps["klassifikator"].feature_importances_,
+        }
+    ).sort_values("muhimlik", ascending=False)
+
+    fpr, tpr, _ = roc_curve(y_t, y_ehtimol)
+    aniqlik, qamrov, _ = precision_recall_curve(y_t, y_ehtimol)
+    chalkash_matritsa = confusion_matrix(y_t, y_bashorat)
+    roc_auc = float(roc_auc_score(y_t, y_ehtimol))
+    f1 = float(f1_score(y_t, y_bashorat, zero_division=0))
+
+    artifact = {
+        "pipeline": pipe,
+        "xususiyatlar": XUSUSIYATLAR,
+        "chegara": chegara,
+        "miqdor_stat": {"min": float(df["amount"].min()), "max": float(df["amount"].max())},
+        "xususiyat_muhimlik": muhimlik_df,
+        "orgatish_sanasi": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "orgatish_soni": len(X_o),
+        "test_soni": len(X_t),
+        "fraud_ulushi": float(df[NISHON].mean()),
+        "korsatkichlar": {
+            "kv_roc_auc": roc_auc,
+            "kv_roc_auc_std": 0.0,
+            "kv_f1": f1,
+            "kv_aniqlik": 0.0,
+            "kv_qamrov": 0.0,
+            "test_roc_auc": roc_auc,
+            "test_ort_aniqlik": float(average_precision_score(y_t, y_ehtimol)),
+            "test_f1": f1,
+            "chegara": chegara,
+            "chalkash_matritsa": chalkash_matritsa,
+            "roc_egri": (fpr, tpr),
+            "pr_egri": (aniqlik, qamrov),
+            "hisobot": classification_report(y_t, y_bashorat, output_dict=True, zero_division=0),
+        },
+    }
+
+    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(artifact, MODEL_PATH)
+
+    if progress:
+        progress.progress(100, "Tezkor model tayyor!")
+
+    return artifact
+
+
 # ── Model yuklash ─────────────────────────────────────────────────────────────
 def artifactni_moslashtir(artifact: dict | None) -> dict | None:
     """
@@ -1091,16 +1186,10 @@ def main() -> None:
     # Streamlit Cloud yoki birinchi ishga tushirishda model yo'q/mos kelmasa,
     # datasetdan avtomatik o'rgatamiz. Bu pickle versiya muammolarini yo'qotadi.
     if modelni_yukla() is None and DATA_PATH.exists():
-        st.info("Birinchi ishga tushirish: model avtomatik o'rgatilmoqda...")
+        st.info("Birinchi ishga tushirish: deploy uchun tezkor model tayyorlanmoqda...")
         bar = st.progress(0, "Boshlanmoqda…")
         df  = malumotlarni_yukla()
-        orgatish_va_saqlash(
-            df,
-            daraxt_soni=120,
-            max_chuqurlik=14,
-            min_barglar=3,
-            progress=bar,
-        )
+        tezkor_orgatish_va_saqlash(df, progress=bar)
         st.cache_resource.clear()
         st.rerun()
 

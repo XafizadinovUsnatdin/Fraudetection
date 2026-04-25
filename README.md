@@ -43,9 +43,10 @@ Streamlit Cloud sozlamalari:
 - Python: `runtime.txt` orqali `python-3.11`
 
 Model `.pkl` fayllari repoga qo'shilmaydi. Deploy paytida app birinchi ishga tushganda
-`data/synthetic_transactions.csv`dan modelni avtomatik o'rgatadi va vaqtincha `ml/fraud_model_v2.pkl`
-fayliga saqlaydi. Bu Streamlit Cloud muhitida Python/sklearn/numpy versiya mos kelmasligi sababli
-pickle yuklanmay qolish muammosini oldini oladi.
+`data/synthetic_transactions.csv`dan yengil start modelni avtomatik o'rgatadi va vaqtincha
+`ml/fraud_model_v2.pkl` fayliga saqlaydi. To'liq 5-fold modelni keyin Streamlit ichidagi
+**O'rgatish** tabidan qayta o'rgatish mumkin. Bu Streamlit Cloud cold-start vaqtini qisqartiradi
+va Python/sklearn/numpy versiya mos kelmasligi sababli pickle yuklanmay qolish muammosini oldini oladi.
 
 SafeNet is a hackathon-ready fintech anti-fraud demo with:
 
