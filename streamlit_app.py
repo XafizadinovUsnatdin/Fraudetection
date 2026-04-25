@@ -503,6 +503,206 @@ def oqim_metrikalari(y_true: list[int], y_pred: list[int], y_prob: list[float]) 
     }
 
 
+def risk_sabablari(row: pd.Series, result: dict) -> list[str]:
+    reasons: list[str] = []
+    if int(row.get("Recipient Blacklist Status", 0)) == 1:
+        reasons.append("recipient_blacklist")
+    if int(row.get("VPN or Proxy Usage", 0)) == 1:
+        reasons.append("vpn_proxy")
+    if int(row.get("Location-Inconsistent Transactions", 0)) == 1:
+        reasons.append("location_inconsistent")
+    if int(row.get("Geo-Location Flags", 0)) == 1:
+        reasons.append("geo_anomaly")
+    if int(row.get("User Daily Limit Exceeded", 0)) == 1:
+        reasons.append("daily_limit_exceeded")
+    if int(row.get("Past Fraudulent Behavior Flags", 0)) == 1:
+        reasons.append("past_fraud_behavior")
+    if int(row.get("Recipient Verification Status", 1)) == 0:
+        reasons.append("recipient_not_verified")
+    if float(row.get("Time Since Last Transaction", 999)) < 10:
+        reasons.append("rapid_repeat_transaction")
+    if int(row.get("Transaction Frequency", 0)) >= 12:
+        reasons.append("high_daily_frequency")
+    if int(row.get("Account Age", 9999)) < 30:
+        reasons.append("new_account")
+    if str(row.get("device", "")) in {"emulator", "unknown"}:
+        reasons.append("risky_device")
+    if str(row.get("location", "")) in {"foreign_ip", "unknown"}:
+        reasons.append("risky_location")
+    if result["qaror"] == "ALLOW" and not reasons:
+        reasons.append("normal_behavior")
+    return reasons[:5]
+
+
+def render_transaction_lifecycle(art: dict, df: pd.DataFrame) -> None:
+    st.subheader("Real tranzaksiya jarayoni")
+    st.caption(
+        "Bu simulyatsiya real payment flowga o'xshaydi: tranzaksiya keladi, "
+        "validatsiya qilinadi, risk signallar tekshiriladi, model score beradi, "
+        "qaror settlement/review/block audit logiga yoziladi."
+    )
+
+    col1, col2, col3, col4 = st.columns([1, 1.4, 1, 1])
+    with col1:
+        count = st.slider("Jarayon soni", 5, 120, 25, 5, key="lifecycle_count")
+    with col2:
+        scenario = st.selectbox(
+            "Jarayon ssenariysi",
+            ["Real oqim (dataset fraud ulushi)", "Balanslangan test (50% fraud)", "Hujum ssenariysi (35% fraud)"],
+            key="lifecycle_scenario",
+        )
+    with col3:
+        step_pause = st.slider("Step pauza", 0.0, 0.5, 0.05, 0.01, key="lifecycle_pause")
+    with col4:
+        seed = st.number_input("Jarayon seed", 1, 999_999, 2026, key="lifecycle_seed")
+
+    if not st.button("Real jarayonni boshlash", type="primary", width="stretch"):
+        st.info("Boshlash tugmasini bosing: tranzaksiyalar real jarayon kabi navbat bilan qayta ishlanadi.")
+        return
+
+    rng = np.random.default_rng(int(seed))
+    stream = simulyatsiya_namunasini_tanla(df, count, scenario, int(seed))
+    merchants = [
+        ("Uzum Market", "ecommerce"),
+        ("Payme Transfer", "p2p_transfer"),
+        ("Click Payment", "wallet"),
+        ("Airport Duty Free", "travel"),
+        ("Crypto Exchange", "digital_asset"),
+        ("Mobile Topup", "telecom"),
+        ("Electronics Store", "retail"),
+    ]
+    channels = ["mobile_app", "web_checkout", "pos_terminal", "api_transfer"]
+
+    kpi_box = st.empty()
+    current_box = st.empty()
+    stage_box = st.empty()
+    ledger_box = st.empty()
+    chart_box = st.empty()
+    progress = st.progress(0, "Jarayon boshlandi...")
+
+    ledger: list[dict[str, object]] = []
+    y_true: list[int] = []
+    y_pred: list[int] = []
+    y_prob: list[float] = []
+    decision_counts = {"ALLOW": 0, "REVIEW": 0, "BLOCK": 0}
+    base_time = pd.Timestamp.now().floor("s")
+
+    for idx, (_, row) in enumerate(stream.iterrows(), start=1):
+        merchant, category = merchants[int(rng.integers(0, len(merchants)))]
+        channel = channels[int(rng.integers(0, len(channels)))]
+        tx_id = f"TX-{base_time.strftime('%H%M%S')}-{idx:04d}"
+        result = tranzaksiyani_tekshir(art, {col: row[col] for col in FEATURES})
+        actual = int(row[TARGET])
+        predicted = int(result["qaror"] in ("REVIEW", "BLOCK"))
+        probability = float(result["ehtimol"])
+        reasons = risk_sabablari(row, result)
+        decision_counts[result["qaror"]] += 1
+
+        final_status = {
+            "ALLOW": "SETTLED",
+            "REVIEW": "MANUAL_REVIEW_QUEUE",
+            "BLOCK": "DECLINED",
+        }[result["qaror"]]
+        auth_code = f"A{int(rng.integers(100000, 999999))}" if result["qaror"] == "ALLOW" else "-"
+        event_time = base_time + pd.Timedelta(seconds=idx * int(rng.integers(2, 8)))
+
+        stage_latencies = [
+            ("1. Kelib tushdi", "CREATED", int(rng.integers(12, 35))),
+            ("2. Format va limit validatsiya", "VALIDATED", int(rng.integers(18, 55))),
+            ("3. Device / geo / recipient signallar", "RISK_SIGNALS", int(rng.integers(25, 80))),
+            ("4. ML fraud score", f"{probability * 100:.1f}%", int(rng.integers(35, 110))),
+            ("5. Qaror engine", result["qaror"], int(rng.integers(8, 35))),
+            ("6. Yakuniy holat", final_status, int(rng.integers(20, 65))),
+        ]
+
+        stage_rows: list[dict[str, object]] = []
+        total_latency = 0
+        for stage, status, latency in stage_latencies:
+            total_latency += latency
+            stage_rows.append({
+                "bosqich": stage,
+                "status": status,
+                "latency_ms": latency,
+                "tx_id": tx_id,
+            })
+            with current_box.container():
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Joriy TX", tx_id)
+                c2.metric("Miqdor", f"${float(row['amount']):,.2f}")
+                c3.metric("Risk", result["xavf"])
+                c4.metric("Score", f"{probability * 100:.1f}%")
+                st.write(
+                    f"**{merchant}** | `{category}` | `{channel}` | "
+                    f"`{row['device']}` | `{row['location']}`"
+                )
+            stage_box.dataframe(pd.DataFrame(stage_rows), width="stretch", hide_index=True, height=250)
+            if step_pause > 0:
+                time.sleep(float(step_pause))
+
+        y_true.append(actual)
+        y_pred.append(predicted)
+        y_prob.append(probability)
+        met = oqim_metrikalari(y_true, y_pred, y_prob)
+
+        ledger.append({
+            "time": event_time.strftime("%H:%M:%S"),
+            "tx_id": tx_id,
+            "user_id": row["user_id"],
+            "merchant": merchant,
+            "channel": channel,
+            "amount": round(float(row["amount"]), 2),
+            "score_%": round(probability * 100, 1),
+            "decision": result["qaror"],
+            "final_status": final_status,
+            "auth_code": auth_code,
+            "reasons": ", ".join(reasons),
+            "actual": "Fraud" if actual else "Normal",
+            "model": "Fraud" if predicted else "Normal",
+            "latency_ms": total_latency,
+        })
+
+        with kpi_box.container():
+            k1, k2, k3, k4, k5 = st.columns(5)
+            k1.metric("Processed", f"{idx}/{count}")
+            k2.metric("Allow", str(decision_counts["ALLOW"]))
+            k3.metric("Review", str(decision_counts["REVIEW"]))
+            k4.metric("Block", str(decision_counts["BLOCK"]))
+            k5.metric("Accuracy", f"{met['accuracy'] * 100:.1f}%")
+
+        ledger_box.dataframe(pd.DataFrame(ledger).tail(100), width="stretch", hide_index=True, height=420)
+        progress.progress(int(idx / count * 100), f"{idx}/{count} tranzaksiya qayta ishlandi")
+
+    with chart_box.container():
+        col_a, col_b = st.columns(2)
+        with col_a:
+            decision_df = pd.DataFrame(
+                {"decision": list(decision_counts.keys()), "count": list(decision_counts.values())}
+            )
+            fig = px.bar(
+                decision_df,
+                x="decision",
+                y="count",
+                color="decision",
+                title="Qarorlar taqsimoti",
+                color_discrete_map={"ALLOW": "#22c55e", "REVIEW": "#f59e0b", "BLOCK": "#ef4444"},
+            )
+            st.plotly_chart(fig, width="stretch")
+        with col_b:
+            cm = confusion_matrix_np(np.array(y_true), np.array(y_pred))
+            fig = px.imshow(
+                cm,
+                text_auto=True,
+                color_continuous_scale="Blues",
+                x=["Model: Normal", "Model: Fraud"],
+                y=["Haqiqiy: Normal", "Haqiqiy: Fraud"],
+                title="Jarayon bo'yicha confusion matrix",
+            )
+            fig.update_coloraxes(showscale=False)
+            st.plotly_chart(fig, width="stretch")
+
+    progress.progress(100, "Real jarayon simulyatsiyasi yakunlandi")
+
+
 def render_overview(df: pd.DataFrame) -> None:
     st.header("Ma'lumotlar ko'rinishi")
     total = len(df)
@@ -811,6 +1011,8 @@ def render_manual_score(art: dict) -> None:
 
 def render_live(art: dict, df: pd.DataFrame) -> None:
     st.header("Jonli tekshirish")
+    render_transaction_lifecycle(art, df)
+    st.divider()
     render_stream_simulation(art, df)
     st.divider()
     render_manual_score(art)
