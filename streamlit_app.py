@@ -245,11 +245,59 @@ def orgatish_va_saqlash(
 
 
 # ── Model yuklash ─────────────────────────────────────────────────────────────
+def artifactni_moslashtir(artifact: dict | None) -> dict | None:
+    """
+    Eski model artifactlari inglizcha kalitlar bilan saqlangan bo'lishi mumkin.
+    Bu funksiya ularni joriy o'zbekcha app sxemasiga moslashtiradi.
+    """
+    if not isinstance(artifact, dict):
+        return None
+
+    if "korsatkichlar" in artifact:
+        return artifact
+
+    eski_metrikalar = artifact.get("metrics")
+    if not isinstance(eski_metrikalar, dict):
+        return None
+
+    fi = artifact.get("feature_importance")
+    if isinstance(fi, pd.DataFrame):
+        fi = fi.rename(columns={"feature": "xususiyat", "importance": "muhimlik"})
+
+    chegara = artifact.get("threshold", eski_metrikalar.get("threshold", 0.5))
+    return {
+        "pipeline": artifact.get("pipeline"),
+        "xususiyatlar": artifact.get("features", XUSUSIYATLAR),
+        "chegara": chegara,
+        "miqdor_stat": artifact.get("amount_stats", {"min": 0.0, "max": 1.0}),
+        "xususiyat_muhimlik": fi if isinstance(fi, pd.DataFrame) else pd.DataFrame(),
+        "orgatish_sanasi": artifact.get("train_date", "noma'lum"),
+        "orgatish_soni": artifact.get("n_train", 0),
+        "test_soni": artifact.get("n_test", 0),
+        "fraud_ulushi": artifact.get("fraud_rate", 0.0),
+        "korsatkichlar": {
+            "kv_roc_auc": eski_metrikalar.get("cv_roc_auc", 0.0),
+            "kv_roc_auc_std": eski_metrikalar.get("cv_roc_auc_std", 0.0),
+            "kv_f1": eski_metrikalar.get("cv_f1", 0.0),
+            "kv_aniqlik": eski_metrikalar.get("cv_precision", 0.0),
+            "kv_qamrov": eski_metrikalar.get("cv_recall", 0.0),
+            "test_roc_auc": eski_metrikalar.get("test_roc_auc", 0.0),
+            "test_ort_aniqlik": eski_metrikalar.get("test_avg_precision", 0.0),
+            "test_f1": eski_metrikalar.get("test_f1", 0.0),
+            "chegara": chegara,
+            "chalkash_matritsa": eski_metrikalar.get("confusion_matrix", np.zeros((2, 2), dtype=int)),
+            "roc_egri": eski_metrikalar.get("roc_curve", (np.array([0, 1]), np.array([0, 1]))),
+            "pr_egri": eski_metrikalar.get("pr_curve", (np.array([1, 0]), np.array([0, 1]))),
+            "hisobot": eski_metrikalar.get("report", {}),
+        },
+    }
+
+
 @st.cache_resource(show_spinner=False)
 def modelni_yukla() -> dict | None:
     """Saqlangan modelni keshdan yuklaydi."""
     if MODEL_PATH.exists():
-        return joblib.load(MODEL_PATH)
+        return artifactni_moslashtir(joblib.load(MODEL_PATH))
     return None
 
 
