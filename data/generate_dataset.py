@@ -17,6 +17,7 @@ import pandas as pd
 SEED = 42
 N_JAMI = 50_000          # jami tranzaksiyalar soni
 FRAUD_ULUSHI = 0.05      # 5% fraud (real sanoatda odatda 0.1-10%)
+SOM_KONVERSIYA = 12_500  # bazaviy synthetic scale -> Uzbek so'm scale
 CHIQISH = Path(__file__).parent / "synthetic_transactions.csv"
 
 # Qurilmalar va ehtimolliklar
@@ -71,7 +72,7 @@ def generate(seed: int = SEED) -> pd.DataFrame:
 
     # ── Asosiy maydonlar ────────────────────────────────────────────────────
 
-    # Miqdorlar: har ikkala sinfda keng tarqalish bor.
+    # Miqdorlar avval bazaviy synthetic scale'da yaratiladi, keyin so'mga o'tkaziladi.
     # Fraud o'rtachasi biroz yuqori, lekin kichik fraud va katta normal
     # tranzaksiyalar ham ko'p bo'lgani uchun model mukammal ajrata olmaydi.
     miqdor_normal = rng.lognormal(np.log(120), 1.05, n_normal).clip(1.0, 25_000)
@@ -86,6 +87,11 @@ def generate(seed: int = SEED) -> pd.DataFrame:
     miqdor_normal[katta_normal] = rng.lognormal(
         np.log(450), 0.9, katta_normal.sum()
     ).clip(80, 20_000)
+
+    # So'mga o'tkazish: 1 bazaviy birlik ~= 12 500 so'm.
+    # 100 so'mgacha yaxlitlash real to'lov tizimlari uchun qulayroq ko'rinadi.
+    miqdor_normal = (np.round((miqdor_normal * SOM_KONVERSIYA) / 100) * 100).astype(int)
+    miqdor_fraud = (np.round((miqdor_fraud * SOM_KONVERSIYA) / 100) * 100).astype(int)
 
     user_id_normal = [f"user_{rng.integers(1, 801):03d}" for _ in range(n_normal)]
     user_id_fraud  = [f"user_{rng.integers(1, 801):03d}" for _ in range(n_fraud)]

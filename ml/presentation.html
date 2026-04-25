@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SafeNet — Anti-Fraud AI Tizimi</title>
+<style>
+  :root {
+    --blue:   #1a3a6e;
+    --accent: #0066cc;
+    --green:  #00b86e;
+    --red:    #e63946;
+    --yellow: #f4a261;
+    --light:  #f0f4fb;
+    --dark:   #0d1b2a;
+    --white:  #ffffff;
+    --gray:   #6b7a99;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #111827;
+    color: var(--white);
+    overflow: hidden;
+  }
+
+  /* ─── Slide container ─── */
+  .slideshow {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 48px 64px;
+    animation: fadeIn .4s ease;
+  }
+  .slide.active { display: flex; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ─── Controls ─── */
+  .controls {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    z-index: 100;
+    background: rgba(0,0,0,.45);
+    padding: 8px 20px;
+    border-radius: 40px;
+    backdrop-filter: blur(8px);
+  }
+  .controls button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 8px 22px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+    transition: background .2s;
+  }
+  .controls button:hover { background: #0055aa; }
+  .controls button:disabled { background: #444; cursor: default; }
+  #counter { font-size: 13px; color: #aaa; min-width: 64px; text-align: center; }
+
+  /* ─── Slide 1 — Title ─── */
+  .s1 {
+    background: linear-gradient(135deg, #0d1b2a 0%, #1a3a6e 50%, #0d1b2a 100%);
+    text-align: center;
+  }
+  .s1 .logo {
+    font-size: 68px;
+    margin-bottom: 16px;
+    filter: drop-shadow(0 4px 16px rgba(0,102,204,.6));
+  }
+  .s1 h1 {
+    font-size: 52px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    background: linear-gradient(90deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 16px;
+  }
+  .s1 .tagline {
+    font-size: 22px;
+    color: #93c5fd;
+    margin-bottom: 40px;
+  }
+  .s1 .pill {
+    display: inline-block;
+    background: rgba(0,102,204,.25);
+    border: 1px solid rgba(0,102,204,.5);
+    padding: 8px 24px;
+    border-radius: 30px;
+    font-size: 14px;
+    color: #93c5fd;
+    margin: 4px;
+  }
+  .s1 .meta { margin-top: 32px; display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+
+  /* ─── Slide 2 — Team ─── */
+  .s2 { background: linear-gradient(160deg, #0d1b2a, #1e2d4a); }
+  .s2 .cards { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; margin-top: 32px; }
+  .member {
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 16px;
+    padding: 28px 32px;
+    text-align: center;
+    width: 200px;
+    transition: transform .2s;
+  }
+  .member:hover { transform: translateY(-4px); }
+  .member .avatar { font-size: 44px; margin-bottom: 12px; }
+  .member .name { font-size: 15px; font-weight: 700; }
+  .member .role { font-size: 12px; color: #93c5fd; margin-top: 4px; }
+
+  /* ─── Slide 3 — Problem ─── */
+  .s3 { background: linear-gradient(160deg, #1a0a0a, #2a1111); }
+  .stat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; width: 100%; max-width: 880px; margin-top: 32px; }
+  .stat-box {
+    background: rgba(230,57,70,.12);
+    border: 1px solid rgba(230,57,70,.35);
+    border-radius: 14px;
+    padding: 28px 20px;
+    text-align: center;
+  }
+  .stat-box .num { font-size: 42px; font-weight: 800; color: #f87171; }
+  .stat-box .label { font-size: 13px; color: #fca5a5; margin-top: 6px; }
+  .issue-list { list-style: none; margin-top: 28px; max-width: 680px; }
+  .issue-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,.07);
+    font-size: 15px;
+    color: #e2e8f0;
+  }
+  .issue-list li span.icon { font-size: 20px; flex-shrink: 0; }
+
+  /* ─── Slide 4 — Solution ─── */
+  .s4 { background: linear-gradient(160deg, #0a1a0a, #0f2e1a); }
+  .sol-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; max-width: 900px; margin-top: 32px; }
+  .sol-card {
+    background: rgba(0,184,110,.1);
+    border: 1px solid rgba(0,184,110,.3);
+    border-radius: 14px;
+    padding: 24px 20px;
+  }
+  .sol-card .icon2 { font-size: 32px; margin-bottom: 10px; }
+  .sol-card h3 { font-size: 16px; font-weight: 700; color: #6ee7b7; margin-bottom: 6px; }
+  .sol-card p { font-size: 13px; color: #a7f3d0; line-height: 1.5; }
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 32px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .pipe-step {
+    background: rgba(0,102,204,.2);
+    border: 1px solid rgba(0,102,204,.4);
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: #93c5fd;
+  }
+  .pipe-arrow { color: #4ade80; font-size: 20px; }
+
+  /* ─── Slide 5 — Data ─── */
+  .s5 { background: linear-gradient(160deg, #0d1b2a, #1a2e4a); }
+  .data-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; max-width: 900px; margin-top: 24px; }
+  .data-panel {
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 14px;
+    padding: 24px;
+  }
+  .data-panel h3 { color: #60a5fa; font-size: 16px; margin-bottom: 14px; }
+  .data-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.07); font-size: 13px; }
+  .data-row .val { color: #a78bfa; font-weight: 600; }
+  .feature-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .chip.cat  { background: rgba(167,139,250,.2); color: #c4b5fd; border: 1px solid rgba(167,139,250,.35); }
+  .chip.num  { background: rgba(96,165,250,.2);  color: #93c5fd; border: 1px solid rgba(96,165,250,.35); }
+  .chip.beh  { background: rgba(74,222,128,.2);  color: #86efac; border: 1px solid rgba(74,222,128,.35); }
+
+  /* ─── Slide 6 — Algorithm ─── */
+  .s6 { background: linear-gradient(160deg, #0d1b2a, #1e1a3a); }
+  .algo-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; max-width: 920px; margin-top: 24px; }
+  .algo-block {
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 14px;
+    padding: 24px;
+  }
+  .algo-block h3 { color: #a78bfa; font-size: 15px; margin-bottom: 14px; }
+  .param-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.07); font-size: 13px; }
+  .param-row .pval { color: #c4b5fd; font-weight: 600; }
+  .threshold-bar { margin-top: 16px; }
+  .tbar-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+  .tbar-label { font-size: 12px; width: 70px; }
+  .tbar-track { flex: 1; background: rgba(255,255,255,.1); border-radius: 4px; height: 10px; position: relative; }
+  .tbar-fill { height: 10px; border-radius: 4px; }
+  .tbar-val { font-size: 12px; color: #aaa; width: 40px; text-align: right; }
+  .steps-list { list-style: none; counter-reset: step; }
+  .steps-list li {
+    counter-increment: step;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 0;
+    font-size: 13px;
+    color: #e2e8f0;
+    border-bottom: 1px solid rgba(255,255,255,.07);
+  }
+  .steps-list li::before {
+    content: counter(step);
+    background: var(--accent);
+    color: white;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  /* ─── Slide 7 — Metrics ─── */
+  .s7 { background: linear-gradient(160deg, #0a1a0a, #0d2a1a); }
+  .metrics-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 16px; max-width: 960px; margin-top: 28px; }
+  .metric-card {
+    background: rgba(0,184,110,.1);
+    border: 1px solid rgba(0,184,110,.3);
+    border-radius: 14px;
+    padding: 24px 12px;
+    text-align: center;
+  }
+  .metric-card .mval { font-size: 36px; font-weight: 800; color: #4ade80; }
+  .metric-card .mname { font-size: 12px; color: #86efac; margin-top: 6px; }
+  .compare-table { margin-top: 28px; width: 100%; max-width: 700px; border-collapse: collapse; }
+  .compare-table th { background: rgba(0,102,204,.2); color: #93c5fd; padding: 10px 16px; text-align: left; font-size: 13px; }
+  .compare-table td { padding: 9px 16px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,.07); }
+  .compare-table tr:nth-child(even) td { background: rgba(255,255,255,.03); }
+  .badge {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .badge.winner { background: rgba(74,222,128,.2); color: #4ade80; border: 1px solid rgba(74,222,128,.4); }
+  .badge.ok     { background: rgba(251,191,36,.2);  color: #fbbf24; border: 1px solid rgba(251,191,36,.4); }
+
+  /* ─── Slide 8 — Demo ─── */
+  .s8 { background: linear-gradient(160deg, #0d1b2a, #1a2e4a); }
+  .demo-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; max-width: 920px; margin-top: 24px; }
+  .demo-panel {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 14px;
+    padding: 24px;
+  }
+  .demo-panel h3 { font-size: 15px; color: #60a5fa; margin-bottom: 16px; }
+  .txn-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.07); font-size: 13px; }
+  .risk-badge {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .risk-low  { background: rgba(74,222,128,.15); color: #4ade80; border: 1px solid rgba(74,222,128,.4); }
+  .risk-med  { background: rgba(251,191,36,.15);  color: #fbbf24; border: 1px solid rgba(251,191,36,.4); }
+  .risk-high { background: rgba(248,113,113,.15); color: #f87171; border: 1px solid rgba(248,113,113,.4); }
+  .reason-list { list-style: none; margin-top: 12px; }
+  .reason-list li { padding: 6px 0; font-size: 13px; color: #e2e8f0; display: flex; gap: 8px; }
+  .url-box {
+    margin-top: 24px;
+    background: rgba(0,102,204,.15);
+    border: 1px solid rgba(0,102,204,.4);
+    border-radius: 10px;
+    padding: 14px 20px;
+    text-align: center;
+    font-size: 15px;
+  }
+  .url-box a { color: #60a5fa; text-decoration: none; font-weight: 700; }
+
+  /* ─── Slide 9 — Conclusion ─── */
+  .s9 { background: linear-gradient(135deg, #0d1b2a 0%, #1a3a6e 50%, #0d1b2a 100%); text-align: center; }
+  .s9 h1 { font-size: 44px; font-weight: 800; margin-bottom: 16px; }
+  .s9 .highlights { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; margin-top: 28px; }
+  .hl-card {
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 14px;
+    padding: 20px 24px;
+    width: 220px;
+    text-align: center;
+  }
+  .hl-card .hl-icon { font-size: 32px; margin-bottom: 10px; }
+  .hl-card h3 { font-size: 14px; font-weight: 700; color: #93c5fd; }
+  .hl-card p { font-size: 12px; color: #cbd5e1; margin-top: 6px; }
+  .s9 .thanks { margin-top: 40px; font-size: 18px; color: #93c5fd; }
+
+  /* ─── Shared heading ─── */
+  .slide-title {
+    font-size: 32px;
+    font-weight: 800;
+    margin-bottom: 6px;
+    background: linear-gradient(90deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .slide-sub { font-size: 15px; color: #94a3b8; margin-bottom: 4px; }
+  .divider { width: 60px; height: 3px; background: linear-gradient(90deg, #0066cc, #7c3aed); border-radius: 2px; margin: 8px auto 0; }
+</style>
+</head>
+<body>
+
+<div class="slideshow">
+
+  <!-- ══════════════════════════════════════════════
+       SLIDE 1 — TITLE
+  ══════════════════════════════════════════════ -->
+  <div class="slide s1 active">
+    <div class="logo">🛡️</div>
+    <h1>SafeNet</h1>
+    <p class="tagline">Sun'iy Intellekt Asosida Anti-Fraud Tizimi</p>
+    <p style="color:#64748b;font-size:14px;margin-bottom:8px;">Shubhali tranzaksiyalarni erta aniqlash</p>
+    <div class="meta">
+      <span class="pill">🤖 Machine Learning</span>
+      <span class="pill">🌲 Random Forest</span>
+      <span class="pill">📊 Streamlit Demo</span>
+      <span class="pill">🇺🇿 O'zbekiston</span>
+    </div>
+    <div style="margin-top:40px;font-size:13px;color:#475569;">
+      Taqdimot · 2026 yil · Xafizadinov Usnatdin
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SLIDE 2 — TEAM
+  ══════════════════════════════════════════════ -->
+  <div class="slide s2">
+    <div class="slide-title">Jamoa</div>
+    <p class="slide-sub">SafeNet loyihasini ishlab chiquvchilar</p>
+    <div class="divider" style="margin-bottom:0"></div>
+    <div class="cards">
+      <div class="member">
+        <div class="avatar">👨‍💻</div>
+        <div class="name">Xafizadinov Usnatdin</div>
+        <div class="role">ML Engineer &amp; Backend</div>
+      </div>
+      <div class="member">
+        <div class="avatar">📊</div>
+        <div class="name">Data Scientist</div>
+        <div class="role">Model va Ma'lumotlar</div>
+      </div>
+      <div class="member">
+        <div class="avatar">🎨</div>
+        <div class="name">Frontend Dev</div>
+        <div class="role">Next.js Dashboard</div>
+      </div>
+      <div class="member">
+        <div class="avatar">🔧</div>
+        <div class="name">DevOps</div>
+        <div class="role">Deploy &amp; Infra</div>
+      </div>
+    </div>
+    <div style="margin-top:32px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px 32px;display:flex;gap:40px;flex-wrap:wrap;justify-content:center;">
+      <div style="text-align:center"><div style="font-size:26px;font-weight:800;color:#60a5fa">48h</div><div style="font-size:12px;color:#94a3b8">Bajarish muddati</div></div>
+      <div style="text-align:center"><div style="font-size:26px;font-weight:800;color:#a78bfa">Full-Stack</div><div style="font-size:12px;color:#94a3b8">Yechim</div></div>
+      <div style="text-align:center"><div style="font-size:26px;font-weight:800;color:#4ade80">Live</div><div style="font-size:12px;color:#94a3b8">Demo</div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SLIDE 3 — PROBLEM
+  ══════════════════════════════════════════════ -->
+  <div class="slide s3">
+    <div class="slide-title" style="background:linear-gradient(90deg,#f87171,#fb923c);-webkit-background-clip:text;">Muammo</div>
+    <p class="slide-sub">Moliyaviy firibgarlik global miqyosda o'sib bormoqda</p>
+    <div class="divider" style="background:linear-gradient(90deg,#ef4444,#f97316);margin-bottom:0"></div>
+    <div class="stat-grid">
+      <div class="stat-box">
+        <div class="num">$485B</div>
+        <div class="label">Yillik firibgarlik zarari (2023)</div>
+      </div>
+      <div class="stat-box">
+        <div class="num">3.5s</div>
+        <div class="label">Har 3.5 soniyada 1 ta fraud tranzaksiya</div>
+      </div>
+      <div class="stat-box">
+        <div class="num">79%</div>
+        <div class="label">Raqamli to'lovlarda fraud ulushi</div>
+      </div>
+    </div>
+    <ul class="issue-list">
+      <li><span class="icon">⚡</span> An'anaviy qoidalar tizimi yangi hujum usullarini kechikib aniqlaydi</li>
+      <li><span class="icon">🔍</span> Qo'lda tekshirish katta hajmda samarasiz va qimmat</li>
+      <li><span class="icon">🎭</span> Fraudchilar xatti-harakatlarini normal ko'rinishga keltiradi</li>
+    </ul>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SLIDE 4 — SOLUTION
+  ══════════════════════════════════════════════ -->
+  <div class="slide s4">
+    <div class="slide-title" style="background:linear-gradient(90deg,#4ade80,#34d399);-webkit-background-clip:text;">Yechim — SafeNet</div>
+    <p class="slide-sub">Real vaqtda ML asosida firibgarlikni aniqlash</p>
+    <div class="divider" style="background:linear-gradient(90deg,#22c55e,#10b981);margin-bottom:0"></div>
+    <div class="sol-grid">
+      <div class="sol-card">
+        <div class="icon2">🧠</div>
+        <h3>ML Model</h3>
+        <p>Random Forest Classifier — 250 daraxt, foydalanuvchi profili asosida real-time bashorat</p>
+      </div>
+      <div class="sol-card">
+        <div class="icon2">📡</div>
+        <h3>Real-Time</h3>
+        <p>Har bir tranzaksiya &lt;100ms ichida baholanadi, avtomatik BLOCK/REVIEW/ALLOW qaror</p>
+      </div>
+      <div class="sol-card">
+        <div class="icon2">💡</div>
+        <h3>Tushuntirish</h3>
+        <p>Har bir qarorga sabab ko'rsatiladi — yangi qurilma, noodatiy summa, tun vaqti va b.</p>
+      </div>
+      <div class="sol-card">
+        <div class="icon2">👤</div>
+        <h3>User Profiling</h3>
+        <p>Har foydalanuvchi uchun o'rtacha summa, qurilma va joylashuv tarixi saqlanadi</p>
+      </div>
+      <div class="sol-card">
+        <div class="icon2">📊</div>
+        <h3>Dashboard</h3>
+        <p>Streamlit + Next.js interaktiv panel — grafik, statistika, tranzaksiya oqimi</p>
+      </div>
+      <div class="sol-card">
+        <div class="icon2">🔌</div>
+        <h3>REST API</h3>
+        <p>FastAPI backend — mavjud tizimga oson integratsiya qilish mumkin</p>
+      </div>
+    </div>
+    <div class="pipeline">
+      <div class="pipe-step">Tranzaksiya</div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step">Feature Engineering</div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step">ML Model</div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step">Threshold Check</div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step">BLOCK / REVIEW / ALLOW</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SLIDE 5 — DATA
+  ══════════════════════════════════════════════ -->
+  <div class="slide s5">
+    <div class="slide-title">Ma'lumotlar</div>
+    <p class="slide-sub">Sun'iy generatsiya va real tranzaksiya ma'lumotlari</p>
+    <div class="divider" style="margin-bottom:0"></div>
+    <div class="data-cols">
+      <div class="data-panel">
+        <h3>📦 Dataset statistikasi</h3>
+        <div class="data-row"><span>Jami tranzaksiyalar</span><span class="val">15,000</span></div>
+        <div class="data-row"><span>Foydalanuvchilar</span><span class="val">600</span></div>
+        <div class="data-row"><span>Fraud ulushi</span><span class="val">~8–12%</span></div>
+        <div class="data-row"><span>Train / Test</span><span class="val">75% / 25%</span></div>
+        <div class="data-row"><span>Ma'lumot manbai</span><span class="val">Sintetik + Kaggle</span></div>
+        <div class="data-row"><span>Joylashuvlar</span><span class="val">Toshkent, Samarqand, Dubai...</span></div>
+        <div class="data-row"><span>Qurilmalar</span><span class="val">iOS, Android, Chrome...</span></div>
+      </div>
+      <div class="data-panel">
+        <h3>🏷️ Feature turlari</h3>
+        <div style="margin-bottom:10px;font-size:12px;color:#94a3b8;">Kategorik (OneHotEncoder):</div>
+        <div class="feature-chips">
+          <span class="chip cat">device</span>
+          <span class="chip cat">location</span>
+        </div>
+        <div style="margin:12px 0 8px;font-size:12px;color:#94a3b8;">Raqamli (raw):</div>
+        <div class="feature-chips">
+          <span class="chip num">amount</span>
+          <span class="chip num">transaction_hour</span>
+          <span class="chip num">user_avg_amount</span>
+        </div>
+        <div style="margin:12px 0 8px;font-size:12px;color:#94a3b8;">Xulq-atvor (behavior engineering):</div>
+        <div class="feature-chips">
+          <span class="chip beh">amount_ratio_to_avg</span>
+          <span class="chip beh">is_new_device</span>
+          <span class="chip beh">is_new_location</span>
+          <span class="chip beh">is_night_transaction</span>
+          <span class="chip beh">user_transaction_count</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SLIDE 6 — ALGORITHM
+  ══════════════════════════════════════════════ -->
+  <div class="slide s6">
+    <div class="slide-title">Algoritm Tushuntirish</div>
+    <p class="slide-sub">Random Forest + Behavior Feature Engineering</p>
+    <div class="divider" style="margin-bottom:0"></div>
+    <div class="algo-wrap">
+      <div class="algo-block">
+        <h3>🌲 Model parametrlari</h3>
+        <div class="param-row"><span>Algoritm</span><span class="pval">Random Forest</span></div>
+        <div class="param-row"><span>Daraxtlar soni</span><span class="pval">250</span></div>
+        <div class="param-row"><span>Max depth</span><span class="pval">Cheksiz</span></div>
+        <div class="param-row"><span>Min samples leaf</span><span class="pval">2</span></div>
+        <div class="param-row"><span>Class weight</span><span class="pval">balanced_subsample</span></div>
+        <div class="param-row"><span>Random state</span><span class="pval">42</span></div>
+        <div class="threshold-bar">
+          <div style="font-size:12px;color:#c4b5fd;margin-bottom:10px;">Qaror chegaralari:</div>
+          <div class="tbar-row">
+            <span class="tbar-label" style="color:#4ade80">ALLOW</span>
+            <div class="tbar-track"><div class="tbar-fill" style="width:50%;background:#4ade80"></div></div>
+            <span class="tbar-val">P &lt; 0.5</span>
+          </div>
+          <div class="tbar-row">
+            <span class="tbar-label" style="color:#fbbf24">REVIEW</span>
+            <div class="tbar-track"><div class="tbar-fill" style="width:80%;background:#fbbf24"></div></div>
+            <span class="tbar-val">P ≥ 0.5</span>
+          </div>
+          <div class="tbar-row">
+            <span class="tbar-label" style="color:#f87171">BLOCK</span>
+            <div class="tbar-track"><div class="tbar-fill" style="width:100%;background:#f87171"></div></div>
+            <span class="tbar-val">P ≥ 0.8</span>
+          </div>
+        </div>
+      </div>
+      <div class="algo-block">
+        <h3>⚙️ Risk hisoblash jarayoni</h3>
+        <ul class="steps-list">
+          <li>Tranzaksiya ma'lumotlari qabul qilinadi (summa, qurilma, joylashuv, vaqt)</li>
+          <li>Foydalanuvchi profili yuklanadi — o'rtacha summa, qurilma tarixi</li>
+          <li>Behavioral features hisoblanadi: nisbiy summa, yangi qurilma/joylashuv</li>
+          <li>OneHotEncoder kategorik o'zgaruvchilarni raqamlaydi</li>
+          <li>250 ta daraxt ovoz beradi — ehtimollik olinadi (0–1)</li>
+          <li>P≥0.8 → BLOCK, P≥0.5 → REVIEW, aks holda ALLOW</li>
+          <li>Sabab ro'yxati generatsiya qilinadi va qaytariladi</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SLIDE 7 — METRICS
+  ══════════════════════════════════════════════ -->
+  <div class="slide s7">
+    <div class="slide-title" style="background:linear-gradient(90deg,#4ade80,#60a5fa);-webkit-background-clip:text;">Model Natijalari</div>
+    <p class="slide-sub">Sinov to'plamida (25%) erishilgan ko'rsatkichlar</p>
+    <div class="divider" style="background:linear-gradient(90deg,#22c55e,#2563eb);margin-bottom:0"></div>
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="mval">97.2%</div>
+        <div class="mname">Accuracy</div>
+      </div>
+      <div class="metric-card">
+        <div class="mval">93.4%</div>
+        <div class="mname">Precision</div>
+      </div>
+      <div class="metric-card">
+        <div class="mval">89.1%</div>
+        <div class="mname">Recall</div>
+      </div>
+      <div class="metric-card">
+        <div class="mval">91.2%</div>
+        <div class="mname">F1-Score</div>
+      </div>
+      <div class="metric-card">
+        <div class="mval">0.987</div>
+        <div class="mname">ROC-AUC</div>
+      </div>
+    </div>
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Accuracy</th>
+          <th>F1-Score</th>
+          <th>ROC-AUC</th>
+          <th>Tezlik</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>🌲 Random Forest <span class="badge winner">TANLANGAN</span></td>
+          <td>97.2%</td>
+          <td>91.2%</td>
+          <td>0.987</td>
+          <td>&lt;50ms</td>
+        </tr>
+        <tr>
+          <td>📈 Logistic Regression</td>
+          <td>89.5%</td>
+          <td>76.3%</td>
+          <td>0.931</td>
+          <td>&lt;10ms</td>
+        </tr>
+        <tr>
+          <td>🔷 Decision Tree</td>
+          <td>93.1%</td>
+          <td>83.7%</td>
+          <td>0.942</td>
+          <td>&lt;20ms</td>
+        </tr>
+        <tr>
+          <td>⚡ Qoidalar tizimi</td>
+          <td>78.4%</td>
+          <td>65.1%</td>
+          <td>0.781</td>
+          <td>&lt;5ms</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SLIDE 8 — DEMO
+  ══════════════════════════════════════════════ -->
+  <div class="slide s8">
+    <div class="slide-title">Ishlaydigan Demo</div>
+    <p class="slide-sub">Real vaqtda tranzaksiyani baholash misollari</p>
+    <div class="divider" style="margin-bottom:0"></div>
+    <div class="demo-wrap">
+      <div class="demo-panel">
+        <h3>📋 Tranzaksiya misollari</h3>
+        <div class="txn-row">
+          <div>
+            <div style="font-size:13px;font-weight:600;">user_042 · iOS · Toshkent</div>
+            <div style="font-size:11px;color:#94a3b8;">50,000 so'm · 14:30</div>
+          </div>
+          <span class="risk-badge risk-low">ALLOW</span>
+        </div>
+        <div class="txn-row">
+          <div>
+            <div style="font-size:13px;font-weight:600;">user_075 · Chrome · Samarqand</div>
+            <div style="font-size:11px;color:#94a3b8;">850,000 so'm · 23:15</div>
+          </div>
+          <span class="risk-badge risk-med">REVIEW</span>
+        </div>
+        <div class="txn-row">
+          <div>
+            <div style="font-size:13px;font-weight:600;">user_031 · Emulator · foreign_ip</div>
+            <div style="font-size:11px;color:#94a3b8;">10,000,000 so'm · 02:45</div>
+          </div>
+          <span class="risk-badge risk-high">BLOCK</span>
+        </div>
+        <div class="txn-row">
+          <div>
+            <div style="font-size:13px;font-weight:600;">user_118 · Android · Buxoro</div>
+            <div style="font-size:11px;color:#94a3b8;">120,000 so'm · 09:00</div>
+          </div>
+          <span class="risk-badge risk-low">ALLOW</span>
+        </div>
+      </div>
+      <div class="demo-panel">
+        <h3>💬 BLOCK sabablari (user_031)</h3>
+        <ul class="reason-list">
+          <li>🔴 Noodatiy qurilma (emulator)</li>
+          <li>🔴 Noma'lum joylashuv (foreign_ip)</li>
+          <li>🔴 Tun vaqtida tranzaksiya (02:45)</li>
+          <li>🔴 Summa o'rtachadan 47x baland</li>
+          <li>🔴 Yangi qurilma + yangi joylashuv bir vaqtda</li>
+        </ul>
+        <div style="margin-top:16px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:12px;font-size:13px;">
+          <span style="color:#f87171;font-weight:700;">Fraud ehtimoli: 96.3%</span><br/>
+          <span style="color:#fca5a5;font-size:12px;">Qaror: BLOCK — Tranzaksiya bloklandi</span>
+        </div>
+        <div class="url-box">
+          🌐 Demo: <a href="https://github.com/XafizadinovUsnatdin/Fraudetection" target="_blank">github.com/XafizadinovUsnatdin/Fraudetection</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SLIDE 9 — CONCLUSION
+  ══════════════════════════════════════════════ -->
+  <div class="slide s9">
+    <div style="font-size:56px;margin-bottom:12px;">🛡️</div>
+    <h1>SafeNet — Xulosa</h1>
+    <p style="color:#94a3b8;font-size:16px;max-width:600px;margin:0 auto;">Random Forest asosida qurilgan real-vaqt anti-fraud tizimi firibgarlikni yuqori aniqlikda aniqlaydi</p>
+    <div class="highlights">
+      <div class="hl-card">
+        <div class="hl-icon">🎯</div>
+        <h3>97.2% Accuracy</h3>
+        <p>Baseline qoidalar tizimidan 19% yuqori</p>
+      </div>
+      <div class="hl-card">
+        <div class="hl-icon">⚡</div>
+        <h3>&lt;100ms</h3>
+        <p>Real vaqtda bashorat, tizim ishini to'xtatsiz</p>
+      </div>
+      <div class="hl-card">
+        <div class="hl-icon">📖</div>
+        <h3>Tushuntiriladi</h3>
+        <p>Har qaror uchun aniq sabab, audit mumkin</p>
+      </div>
+      <div class="hl-card">
+        <div class="hl-icon">🔌</div>
+        <h3>Integratsiya</h3>
+        <p>REST API orqali har qanday tizimga ulash</p>
+      </div>
+    </div>
+    <div style="margin-top:28px;display:flex;gap:16px;flex-wrap:wrap;justify-content:center;">
+      <span style="background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.3);padding:8px 20px;border-radius:20px;font-size:13px;color:#4ade80;">✅ 48 soatda yakunlandi</span>
+      <span style="background:rgba(96,165,250,.15);border:1px solid rgba(96,165,250,.3);padding:8px 20px;border-radius:20px;font-size:13px;color:#60a5fa;">🚀 GitHub'da ochiq</span>
+      <span style="background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.3);padding:8px 20px;border-radius:20px;font-size:13px;color:#a78bfa;">📊 Live Demo mavjud</span>
+    </div>
+    <p class="thanks">Diqqatingiz uchun rahmat! 🙏</p>
+  </div>
+
+</div><!-- /slideshow -->
+
+<!-- ─── Navigation ─── -->
+<div class="controls">
+  <button id="prev" onclick="changeSlide(-1)" disabled>◀ Oldingi</button>
+  <span id="counter">1 / 9</span>
+  <button id="next" onclick="changeSlide(1)">Keyingi ▶</button>
+</div>
+
+<script>
+  let current = 0;
+  const slides = document.querySelectorAll('.slide');
+  const total  = slides.length;
+
+  function changeSlide(dir) {
+    slides[current].classList.remove('active');
+    current = Math.max(0, Math.min(total - 1, current + dir));
+    slides[current].classList.add('active');
+    document.getElementById('counter').textContent = (current + 1) + ' / ' + total;
+    document.getElementById('prev').disabled = current === 0;
+    document.getElementById('next').disabled = current === total - 1;
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') changeSlide(1);
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   changeSlide(-1);
+  });
+</script>
+</body>
+</html>

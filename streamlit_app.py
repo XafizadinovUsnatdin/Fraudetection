@@ -27,6 +27,8 @@ ROOT = Path(__file__).parent
 DATA_PATH = ROOT / "data" / "synthetic_transactions.csv"
 MODEL_PATH = ROOT / "ml" / "fraud_model_v2.pkl"
 
+UZS_SUFFIX = " so'm"
+
 CATEGORICAL = ["device", "location"]
 NUMERICAL = [
     "amount",
@@ -76,6 +78,10 @@ def load_data() -> pd.DataFrame:
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(x, -35, 35)))
+
+
+def format_uzs(value: float) -> str:
+    return f"{float(value):,.0f}{UZS_SUFFIX}"
 
 
 def stratified_split(
@@ -449,7 +455,7 @@ def ensure_model() -> dict:
 
 
 def tranzaksiyani_tekshir(artifact: dict, tx: dict) -> dict:
-    amount = float(tx.get("amount", 100))
+    amount = float(tx.get("amount", 1_500_000))
     a_min = artifact["miqdor_stat"]["min"]
     a_max = artifact["miqdor_stat"]["max"]
     tx["Normalized Transaction Amount"] = float(np.clip((amount - a_min) / max(a_max - a_min, 1e-9), 0.0, 1.0))
@@ -506,58 +512,78 @@ def oqim_metrikalari(y_true: list[int], y_pred: list[int], y_prob: list[float]) 
 def risk_sabablari(row: pd.Series, result: dict) -> list[str]:
     reasons: list[str] = []
     if int(row.get("Recipient Blacklist Status", 0)) == 1:
-        reasons.append("recipient_blacklist")
+        reasons.append("Qabul qiluvchi qora ro'yxatda")
     if int(row.get("VPN or Proxy Usage", 0)) == 1:
-        reasons.append("vpn_proxy")
+        reasons.append("VPN/Proxy ishlatilgan")
     if int(row.get("Location-Inconsistent Transactions", 0)) == 1:
-        reasons.append("location_inconsistent")
+        reasons.append("Joylashuv odatiy emas")
     if int(row.get("Geo-Location Flags", 0)) == 1:
-        reasons.append("geo_anomaly")
+        reasons.append("Geo anomaliya")
     if int(row.get("User Daily Limit Exceeded", 0)) == 1:
-        reasons.append("daily_limit_exceeded")
+        reasons.append("Kunlik limit oshgan")
     if int(row.get("Past Fraudulent Behavior Flags", 0)) == 1:
-        reasons.append("past_fraud_behavior")
+        reasons.append("Oldingi fraud tarixi bor")
     if int(row.get("Recipient Verification Status", 1)) == 0:
-        reasons.append("recipient_not_verified")
+        reasons.append("Qabul qiluvchi tasdiqlanmagan")
     if float(row.get("Time Since Last Transaction", 999)) < 10:
-        reasons.append("rapid_repeat_transaction")
+        reasons.append("Juda tez takroriy tranzaksiya")
     if int(row.get("Transaction Frequency", 0)) >= 12:
-        reasons.append("high_daily_frequency")
+        reasons.append("Kunlik tranzaksiyalar ko'p")
     if int(row.get("Account Age", 9999)) < 30:
-        reasons.append("new_account")
+        reasons.append("Yangi hisob")
     if str(row.get("device", "")) in {"emulator", "unknown"}:
-        reasons.append("risky_device")
+        reasons.append("Shubhali qurilma")
     if str(row.get("location", "")) in {"foreign_ip", "unknown"}:
-        reasons.append("risky_location")
+        reasons.append("Shubhali lokatsiya")
     if result["qaror"] == "ALLOW" and not reasons:
-        reasons.append("normal_behavior")
+        reasons.append("Odatiy xatti-harakat")
     return reasons[:5]
 
 
+def decision_label(decision: str) -> str:
+    return {
+        "ALLOW": "Ruxsat berildi",
+        "REVIEW": "Qo'lda ko'rib chiqish",
+        "BLOCK": "Bloklandi",
+    }.get(decision, decision)
+
+
+def status_label(status: str) -> str:
+    return {
+        "SETTLED": "Muvaffaqiyatli yakunlandi",
+        "MANUAL_REVIEW_QUEUE": "Operator tekshiruviga yuborildi",
+        "DECLINED": "Rad etildi",
+    }.get(status, status)
+
+
 def render_transaction_lifecycle(art: dict, df: pd.DataFrame) -> None:
-    st.subheader("Real tranzaksiya jarayoni")
-    st.caption(
-        "Bu simulyatsiya real payment flowga o'xshaydi: tranzaksiya keladi, "
-        "validatsiya qilinadi, risk signallar tekshiriladi, model score beradi, "
-        "qaror settlement/review/block audit logiga yoziladi."
+    st.subheader("1. Real tranzaksiya jarayoni")
+    st.markdown(
+        """
+Bu demo bitta to'lov tizimidagi real oqimni ko'rsatadi. Har bir tranzaksiya quyidagi bosqichlardan o'tadi:
+`kelib tushdi` -> `validatsiya` -> `risk signallar` -> `ML score` -> `qaror` -> `yakuniy holat`.
+
+Qarorlar ma'nosi: **Ruxsat berildi** - to'lov o'tadi, **Qo'lda ko'rib chiqish** - operatorga yuboriladi,
+**Bloklandi** - tranzaksiya rad etiladi.
+        """
     )
 
     col1, col2, col3, col4 = st.columns([1, 1.4, 1, 1])
     with col1:
-        count = st.slider("Jarayon soni", 5, 120, 25, 5, key="lifecycle_count")
+        count = st.slider("Nechta tranzaksiya?", 5, 120, 25, 5, key="lifecycle_count")
     with col2:
         scenario = st.selectbox(
-            "Jarayon ssenariysi",
+            "Qanday oqim?",
             ["Real oqim (dataset fraud ulushi)", "Balanslangan test (50% fraud)", "Hujum ssenariysi (35% fraud)"],
             key="lifecycle_scenario",
         )
     with col3:
-        step_pause = st.slider("Step pauza", 0.0, 0.5, 0.05, 0.01, key="lifecycle_pause")
+        step_pause = st.slider("Bosqichlar oralig'i", 0.0, 0.5, 0.05, 0.01, key="lifecycle_pause")
     with col4:
-        seed = st.number_input("Jarayon seed", 1, 999_999, 2026, key="lifecycle_seed")
+        seed = st.number_input("Takrorlash kodi", 1, 999_999, 2026, key="lifecycle_seed")
 
-    if not st.button("Real jarayonni boshlash", type="primary", width="stretch"):
-        st.info("Boshlash tugmasini bosing: tranzaksiyalar real jarayon kabi navbat bilan qayta ishlanadi.")
+    if not st.button("Jarayonni boshlash", type="primary", width="stretch"):
+        st.info("Boshlash tugmasini bosing. Tranzaksiyalar navbat bilan keladi va har biri bo'yicha qaror chiqadi.")
         return
 
     rng = np.random.default_rng(int(seed))
@@ -607,12 +633,12 @@ def render_transaction_lifecycle(art: dict, df: pd.DataFrame) -> None:
         event_time = base_time + pd.Timedelta(seconds=idx * int(rng.integers(2, 8)))
 
         stage_latencies = [
-            ("1. Kelib tushdi", "CREATED", int(rng.integers(12, 35))),
-            ("2. Format va limit validatsiya", "VALIDATED", int(rng.integers(18, 55))),
-            ("3. Device / geo / recipient signallar", "RISK_SIGNALS", int(rng.integers(25, 80))),
-            ("4. ML fraud score", f"{probability * 100:.1f}%", int(rng.integers(35, 110))),
-            ("5. Qaror engine", result["qaror"], int(rng.integers(8, 35))),
-            ("6. Yakuniy holat", final_status, int(rng.integers(20, 65))),
+            ("1. Tranzaksiya kelib tushdi", "Qabul qilindi", int(rng.integers(12, 35))),
+            ("2. Format, summa va limit tekshirildi", "Validatsiyadan o'tdi", int(rng.integers(18, 55))),
+            ("3. Qurilma, lokatsiya va qabul qiluvchi tekshirildi", "Risk signallar yig'ildi", int(rng.integers(25, 80))),
+            ("4. ML model fraud ehtimolini hisoblaydi", f"{probability * 100:.1f}%", int(rng.integers(35, 110))),
+            ("5. Qaror chiqarildi", decision_label(result["qaror"]), int(rng.integers(8, 35))),
+            ("6. Yakuniy holat yozildi", status_label(final_status), int(rng.integers(20, 65))),
         ]
 
         stage_rows: list[dict[str, object]] = []
@@ -620,20 +646,20 @@ def render_transaction_lifecycle(art: dict, df: pd.DataFrame) -> None:
         for stage, status, latency in stage_latencies:
             total_latency += latency
             stage_rows.append({
-                "bosqich": stage,
-                "status": status,
-                "latency_ms": latency,
-                "tx_id": tx_id,
+                "Bosqich": stage,
+                "Natija": status,
+                "Vaqt (ms)": latency,
+                "TX ID": tx_id,
             })
             with current_box.container():
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Joriy TX", tx_id)
-                c2.metric("Miqdor", f"${float(row['amount']):,.2f}")
-                c3.metric("Risk", result["xavf"])
-                c4.metric("Score", f"{probability * 100:.1f}%")
+                c1.metric("Joriy tranzaksiya", tx_id)
+                c2.metric("Summa", format_uzs(row["amount"]))
+                c3.metric("Xavf darajasi", result["xavf"])
+                c4.metric("Fraud ehtimoli", f"{probability * 100:.1f}%")
                 st.write(
-                    f"**{merchant}** | `{category}` | `{channel}` | "
-                    f"`{row['device']}` | `{row['location']}`"
+                    f"Merchant: **{merchant}** | Kategoriya: `{category}` | Kanal: `{channel}` | "
+                    f"Qurilma: `{row['device']}` | Lokatsiya: `{row['location']}`"
                 )
             stage_box.dataframe(pd.DataFrame(stage_rows), width="stretch", hide_index=True, height=250)
             if step_pause > 0:
@@ -645,29 +671,29 @@ def render_transaction_lifecycle(art: dict, df: pd.DataFrame) -> None:
         met = oqim_metrikalari(y_true, y_pred, y_prob)
 
         ledger.append({
-            "time": event_time.strftime("%H:%M:%S"),
-            "tx_id": tx_id,
-            "user_id": row["user_id"],
-            "merchant": merchant,
-            "channel": channel,
-            "amount": round(float(row["amount"]), 2),
-            "score_%": round(probability * 100, 1),
-            "decision": result["qaror"],
-            "final_status": final_status,
-            "auth_code": auth_code,
-            "reasons": ", ".join(reasons),
-            "actual": "Fraud" if actual else "Normal",
-            "model": "Fraud" if predicted else "Normal",
-            "latency_ms": total_latency,
+            "Vaqt": event_time.strftime("%H:%M:%S"),
+            "TX ID": tx_id,
+            "Foydalanuvchi": row["user_id"],
+            "Merchant": merchant,
+            "Kanal": channel,
+            "Summa": format_uzs(row["amount"]),
+            "Score %": round(probability * 100, 1),
+            "Qaror": decision_label(result["qaror"]),
+            "Yakuniy holat": status_label(final_status),
+            "Auth kod": auth_code,
+            "Asosiy sabablar": ", ".join(reasons),
+            "Haqiqiy": "Fraud" if actual else "Normal",
+            "Model": "Fraud" if predicted else "Normal",
+            "Jami vaqt (ms)": total_latency,
         })
 
         with kpi_box.container():
             k1, k2, k3, k4, k5 = st.columns(5)
-            k1.metric("Processed", f"{idx}/{count}")
-            k2.metric("Allow", str(decision_counts["ALLOW"]))
-            k3.metric("Review", str(decision_counts["REVIEW"]))
-            k4.metric("Block", str(decision_counts["BLOCK"]))
-            k5.metric("Accuracy", f"{met['accuracy'] * 100:.1f}%")
+            k1.metric("Qayta ishlangan", f"{idx}/{count}")
+            k2.metric("Ruxsat", str(decision_counts["ALLOW"]))
+            k3.metric("Tekshiruv", str(decision_counts["REVIEW"]))
+            k4.metric("Blok", str(decision_counts["BLOCK"]))
+            k5.metric("Aniqlik", f"{met['accuracy'] * 100:.1f}%")
 
         ledger_box.dataframe(pd.DataFrame(ledger).tail(100), width="stretch", hide_index=True, height=420)
         progress.progress(int(idx / count * 100), f"{idx}/{count} tranzaksiya qayta ishlandi")
@@ -676,15 +702,22 @@ def render_transaction_lifecycle(art: dict, df: pd.DataFrame) -> None:
         col_a, col_b = st.columns(2)
         with col_a:
             decision_df = pd.DataFrame(
-                {"decision": list(decision_counts.keys()), "count": list(decision_counts.values())}
+                {
+                    "Qaror": [decision_label(key) for key in decision_counts.keys()],
+                    "Soni": list(decision_counts.values()),
+                }
             )
             fig = px.bar(
                 decision_df,
-                x="decision",
-                y="count",
-                color="decision",
+                x="Qaror",
+                y="Soni",
+                color="Qaror",
                 title="Qarorlar taqsimoti",
-                color_discrete_map={"ALLOW": "#22c55e", "REVIEW": "#f59e0b", "BLOCK": "#ef4444"},
+                color_discrete_map={
+                    "Ruxsat berildi": "#22c55e",
+                    "Qo'lda ko'rib chiqish": "#f59e0b",
+                    "Bloklandi": "#ef4444",
+                },
             )
             st.plotly_chart(fig, width="stretch")
         with col_b:
@@ -695,7 +728,7 @@ def render_transaction_lifecycle(art: dict, df: pd.DataFrame) -> None:
                 color_continuous_scale="Blues",
                 x=["Model: Normal", "Model: Fraud"],
                 y=["Haqiqiy: Normal", "Haqiqiy: Fraud"],
-                title="Jarayon bo'yicha confusion matrix",
+                title="Model va haqiqiy natija solishtiruvi",
             )
             fig.update_coloraxes(showscale=False)
             st.plotly_chart(fig, width="stretch")
@@ -756,6 +789,7 @@ def render_overview(df: pd.DataFrame) -> None:
             barmode="overlay",
             opacity=0.72,
             title="Tranzaksiya miqdori taqsimoti",
+            labels={"amount": "Summa (so'm)"},
         )
         st.plotly_chart(fig, width="stretch")
 
@@ -790,6 +824,7 @@ def render_explorer(df: pd.DataFrame) -> None:
             color=sample[TARGET].map({0: "Normal", 1: "Fraud"}),
             opacity=0.55,
             title="Miqdor va vaqt",
+            labels={"amount": "Summa (so'm)", "transaction_hour": "Soat"},
         )
         st.plotly_chart(fig, width="stretch")
     with col2:
@@ -877,19 +912,23 @@ def render_performance(art: dict) -> None:
 
 
 def render_stream_simulation(art: dict, df: pd.DataFrame) -> None:
-    st.subheader("Real vaqt tranzaksiya oqimi")
+    st.subheader("2. Batch oqim testi")
+    st.caption(
+        "Bu qism ko'p tranzaksiyani tezroq tekshiradi. Maqsad: model qarorlarini umumiy jadvalda ko'rish "
+        "va accuracy/precision/recall kabi metrikalarni oqim davomida kuzatish."
+    )
     col1, col2, col3, col4 = st.columns([1, 1.4, 1, 1])
     with col1:
-        count = st.slider("Tranzaksiyalar soni", 10, 300, 50, 10)
+        count = st.slider("Batchdagi tranzaksiyalar", 10, 300, 50, 10)
     with col2:
-        scenario = st.selectbox("Simulyatsiya turi", ["Real oqim (dataset fraud ulushi)", "Balanslangan test (50% fraud)", "Hujum ssenariysi (35% fraud)"])
+        scenario = st.selectbox("Batch turi", ["Real oqim (dataset fraud ulushi)", "Balanslangan test (50% fraud)", "Hujum ssenariysi (35% fraud)"])
     with col3:
-        pause = st.slider("Pauza (sekund)", 0.0, 1.0, 0.05, 0.05)
+        pause = st.slider("Qatorlar oralig'i", 0.0, 1.0, 0.05, 0.05)
     with col4:
-        seed = st.number_input("Seed", 1, 999_999, 42)
+        seed = st.number_input("Batch seed", 1, 999_999, 42)
 
-    if not st.button("Oqimni boshlash", type="secondary", width="stretch"):
-        st.info("Simulyatsiyani boshlash uchun tugmani bosing.")
+    if not st.button("Batch testni boshlash", type="secondary", width="stretch"):
+        st.info("Bu test real jarayondan ko'ra tezroq ishlaydi va ko'p tranzaksiyani jadvalda ko'rsatadi.")
         return
 
     stream = simulyatsiya_namunasini_tanla(df, count, scenario, int(seed))
@@ -913,23 +952,23 @@ def render_stream_simulation(art: dict, df: pd.DataFrame) -> None:
         y_prob.append(prob)
         rows.append({
             "#": idx,
-            "user_id": row["user_id"],
-            "amount": round(float(row["amount"]), 2),
-            "device": row["device"],
-            "location": row["location"],
-            "score_%": round(prob * 100, 1),
-            "risk": result["xavf"],
-            "decision": result["qaror"],
-            "haqiqiy": "Fraud" if actual else "Normal",
-            "bashorat": "Fraud" if pred else "Normal",
-            "natija": "To'g'ri" if actual == pred else "Xato",
+            "Foydalanuvchi": row["user_id"],
+            "Summa": format_uzs(row["amount"]),
+            "Qurilma": row["device"],
+            "Lokatsiya": row["location"],
+            "Score %": round(prob * 100, 1),
+            "Xavf": result["xavf"],
+            "Qaror": decision_label(result["qaror"]),
+            "Haqiqiy": "Fraud" if actual else "Normal",
+            "Model": "Fraud" if pred else "Normal",
+            "Natija": "To'g'ri" if actual == pred else "Xato",
         })
 
         met = oqim_metrikalari(y_true, y_pred, y_prob)
         with metrics_box.container():
             c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Ko'rilgan", f"{idx}/{count}")
-            c2.metric("Accuracy", f"{met['accuracy'] * 100:.1f}%")
+            c1.metric("Tekshirildi", f"{idx}/{count}")
+            c2.metric("Aniqlik", f"{met['accuracy'] * 100:.1f}%")
             c3.metric("Precision", f"{met['precision'] * 100:.1f}%")
             c4.metric("Recall", f"{met['recall'] * 100:.1f}%")
             c5.metric("F1", f"{met['f1']:.3f}")
@@ -946,11 +985,14 @@ def render_stream_simulation(art: dict, df: pd.DataFrame) -> None:
 
 
 def render_manual_score(art: dict) -> None:
-    st.subheader("Bitta tranzaksiyani qo'lda tekshirish")
+    st.subheader("3. Bitta tranzaksiyani qo'lda tekshirish")
+    st.caption(
+        "Bu forma aniq bir tranzaksiya parametrlarini qo'lda kiritib, model qanday qaror chiqarishini ko'rish uchun."
+    )
     with st.form("manual_score"):
         col1, col2, col3 = st.columns(3)
         with col1:
-            amount = st.number_input("Miqdor ($)", 0.01, 100_000.0, 150.0, step=1.0)
+            amount = st.number_input("Summa (so'm)", 1.0, 500_000_000.0, 1_500_000.0, step=50_000.0)
             device = st.selectbox("Qurilma", ["ios", "android", "windows", "chrome", "safari", "linux", "emulator", "unknown"])
             location = st.selectbox("Joylashuv", ["tashkent", "samarkand", "fergana", "bukhara", "almaty", "istanbul", "dubai", "foreign_ip", "unknown"])
             hour = st.slider("Tranzaksiya soati", 0, 23, 14)
@@ -1011,6 +1053,14 @@ def render_manual_score(art: dict) -> None:
 
 def render_live(art: dict, df: pd.DataFrame) -> None:
     st.header("Jonli tekshirish")
+    st.markdown(
+        """
+Bu bo'lim uch xil tekshiruv beradi:
+1. **Real tranzaksiya jarayoni** - bitta to'lov tizimida tranzaksiya qanday bosqichlardan o'tishini ko'rsatadi.
+2. **Batch oqim testi** - ko'p tranzaksiyani tez tekshiradi va umumiy model metrikalarini chiqaradi.
+3. **Qo'lda tekshirish** - bitta tranzaksiyani o'zingiz kiritib sinaysiz.
+        """
+    )
     render_transaction_lifecycle(art, df)
     st.divider()
     render_stream_simulation(art, df)
