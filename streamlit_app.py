@@ -298,7 +298,12 @@ def artifactni_moslashtir(artifact: dict | None) -> dict | None:
 def modelni_yukla() -> dict | None:
     """Saqlangan modelni keshdan yuklaydi."""
     if MODEL_PATH.exists():
-        return artifactni_moslashtir(joblib.load(MODEL_PATH))
+        try:
+            return artifactni_moslashtir(joblib.load(MODEL_PATH))
+        except Exception:
+            # Cloud muhitida pickle/sklearn/numpy versiyalari mos kelmasa,
+            # app yiqilmasin: main() datasetdan modelni qayta o'rgatadi.
+            return None
     return None
 
 
@@ -1083,12 +1088,19 @@ def yon_panel() -> None:
 def main() -> None:
     yon_panel()
 
-    # Streamlit Cloud yoki birinchi ishga tushirishda model yo'q bo'lsa, avtomatik o'rgat
-    if not MODEL_PATH.exists() and DATA_PATH.exists():
-        st.info("⏳ Birinchi ishga tushirilmoqda — model avtomatik o'rgatilmoqda…")
+    # Streamlit Cloud yoki birinchi ishga tushirishda model yo'q/mos kelmasa,
+    # datasetdan avtomatik o'rgatamiz. Bu pickle versiya muammolarini yo'qotadi.
+    if modelni_yukla() is None and DATA_PATH.exists():
+        st.info("Birinchi ishga tushirish: model avtomatik o'rgatilmoqda...")
         bar = st.progress(0, "Boshlanmoqda…")
         df  = malumotlarni_yukla()
-        orgatish_va_saqlash(df, progress=bar)
+        orgatish_va_saqlash(
+            df,
+            daraxt_soni=120,
+            max_chuqurlik=14,
+            min_barglar=3,
+            progress=bar,
+        )
         st.cache_resource.clear()
         st.rerun()
 

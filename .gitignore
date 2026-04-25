@@ -43,5 +43,5 @@ Thumbs.db
 .ipynb_checkpoints/
 *.ipynb
 
-# Model fayllari (Streamlit Cloud uchun avtomatik o'rgatiladi)
-# ml/fraud_model_v2.pkl kommentda qoldi, repoga qo'shiladi
+# Model fayllari Streamlit Cloud muhitida avtomatik o'rgatiladi
+ml/*.pkl

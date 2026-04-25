@@ -33,6 +33,20 @@ python data\generate_dataset.py
 
 Modelni Streamlit ichidagi **O'rgatish** tabidan qayta o'rgatish mumkin.
 
+## Streamlit Cloud Deploy
+
+Streamlit Cloud sozlamalari:
+
+- Repository: `XafizadinovUsnatdin/Fraudetection`
+- Branch: `main`
+- Main file path: `streamlit_app.py`
+- Python: `runtime.txt` orqali `python-3.11`
+
+Model `.pkl` fayllari repoga qo'shilmaydi. Deploy paytida app birinchi ishga tushganda
+`data/synthetic_transactions.csv`dan modelni avtomatik o'rgatadi va vaqtincha `ml/fraud_model_v2.pkl`
+fayliga saqlaydi. Bu Streamlit Cloud muhitida Python/sklearn/numpy versiya mos kelmasligi sababli
+pickle yuklanmay qolish muammosini oldini oladi.
+
 SafeNet is a hackathon-ready fintech anti-fraud demo with:
 
 - ML fraud probability model
