@@ -7,6 +7,7 @@ Streamlit interaktiv boshqaruv paneli:
 from __future__ import annotations
 
 import warnings
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -334,6 +335,183 @@ def tranzaksiyani_tekshir(artifact: dict, tx: dict) -> dict:
         xavf, qaror = "LOW", "ALLOW"
 
     return {"ehtimol": ehtimol, "xavf": xavf, "qaror": qaror}
+
+
+def simulyatsiya_namunasini_tanla(
+    df: pd.DataFrame,
+    soni: int,
+    ssenariy: str,
+    seed: int,
+) -> pd.DataFrame:
+    """Jonli oqim simulyatsiyasi uchun datasetdan tranzaksiyalar tanlaydi."""
+    rng = np.random.default_rng(seed)
+
+    def sinfdan_ol(label: int, n: int) -> pd.DataFrame:
+        qism = df[df[NISHON] == label]
+        return qism.sample(
+            n=n,
+            replace=len(qism) < n,
+            random_state=int(rng.integers(1, 1_000_000)),
+        )
+
+    if ssenariy == "Balanslangan test (50% fraud)":
+        fraud_soni = soni // 2
+    elif ssenariy == "Hujum ssenariysi (35% fraud)":
+        fraud_soni = max(1, int(soni * 0.35))
+    else:
+        return df.sample(
+            n=soni,
+            replace=len(df) < soni,
+            random_state=seed,
+        ).reset_index(drop=True)
+
+    normal_soni = soni - fraud_soni
+    namuna = pd.concat([sinfdan_ol(1, fraud_soni), sinfdan_ol(0, normal_soni)])
+    return namuna.sample(frac=1, random_state=seed).reset_index(drop=True)
+
+
+def oqim_metrikalari(y_true: list[int], y_pred: list[int], y_prob: list[float]) -> dict:
+    """Kelgan tranzaksiyalar bo'yicha real vaqt metrikalarini hisoblaydi."""
+    if not y_true:
+        return {"accuracy": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0, "roc_auc": None}
+
+    yt = np.array(y_true)
+    yp = np.array(y_pred)
+    prob = np.array(y_prob)
+
+    tp = int(((yt == 1) & (yp == 1)).sum())
+    fp = int(((yt == 0) & (yp == 1)).sum())
+    fn = int(((yt == 1) & (yp == 0)).sum())
+    accuracy = float((yt == yp).mean())
+    precision = tp / max(tp + fp, 1)
+    recall = tp / max(tp + fn, 1)
+
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": float(f1_score(yt, yp, zero_division=0)),
+        "roc_auc": float(roc_auc_score(yt, prob)) if len(np.unique(yt)) == 2 else None,
+    }
+
+
+def render_oqim_simulyatsiyasi(art: dict, df: pd.DataFrame) -> None:
+    """Tranzaksiyalar ketma-ket kelayotgandek modelni jonli sinaydi."""
+    st.subheader("Real vaqt tranzaksiya oqimi")
+    st.caption(
+        "Datasetdan tranzaksiyalar navbat bilan olinadi, model har birini baholaydi "
+        "va natija pastdagi jadvalga qatorma-qator tushadi."
+    )
+
+    col1, col2, col3, col4 = st.columns([1, 1.4, 1, 1])
+    with col1:
+        soni = st.slider("Tranzaksiyalar soni", 10, 300, 50, 10)
+    with col2:
+        ssenariy = st.selectbox(
+            "Simulyatsiya turi",
+            [
+                "Real oqim (dataset fraud ulushi)",
+                "Balanslangan test (50% fraud)",
+                "Hujum ssenariysi (35% fraud)",
+            ],
+        )
+    with col3:
+        pauza = st.slider("Pauza (sekund)", 0.0, 1.0, 0.10, 0.05)
+    with col4:
+        seed = st.number_input("Seed", 1, 999_999, 42)
+
+    boshlash = st.button("Oqimni boshlash", type="secondary", use_container_width=True)
+    metrika_joyi = st.empty()
+    jadval_joyi = st.empty()
+    matrix_joyi = st.empty()
+
+    if not boshlash:
+        st.info("Simulyatsiyani boshlash uchun **Oqimni boshlash** tugmasini bosing.")
+        return
+
+    oqim = simulyatsiya_namunasini_tanla(df, soni, ssenariy, int(seed))
+    progress = st.progress(0, "Oqim boshlandi...")
+    qatorlar: list[dict[str, object]] = []
+    y_true: list[int] = []
+    y_pred: list[int] = []
+    y_prob: list[float] = []
+
+    for tartib, (_, row) in enumerate(oqim.iterrows(), start=1):
+        tx = {ustun: row[ustun] for ustun in XUSUSIYATLAR}
+        natija = tranzaksiyani_tekshir(art, tx)
+        haqiqiy = int(row[NISHON])
+        bashorat = int(natija["qaror"] in ("REVIEW", "BLOCK"))
+        ehtimol = float(natija["ehtimol"])
+
+        y_true.append(haqiqiy)
+        y_pred.append(bashorat)
+        y_prob.append(ehtimol)
+
+        qatorlar.append({
+            "#": tartib,
+            "user_id": row["user_id"],
+            "amount": round(float(row["amount"]), 2),
+            "device": row["device"],
+            "location": row["location"],
+            "hour": int(row["transaction_hour"]),
+            "score_%": round(ehtimol * 100, 1),
+            "risk": natija["xavf"],
+            "decision": natija["qaror"],
+            "haqiqiy": "Fraud" if haqiqiy else "Normal",
+            "bashorat": "Fraud" if bashorat else "Normal",
+            "natija": "To'g'ri" if haqiqiy == bashorat else "Xato",
+        })
+
+        m = oqim_metrikalari(y_true, y_pred, y_prob)
+        with metrika_joyi.container():
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Ko'rilgan", f"{tartib}/{soni}")
+            c2.metric("Accuracy", f"{m['accuracy'] * 100:.1f}%")
+            c3.metric("Precision", f"{m['precision'] * 100:.1f}%")
+            c4.metric("Recall", f"{m['recall'] * 100:.1f}%")
+            c5.metric("F1", f"{m['f1']:.3f}")
+
+        jadval_joyi.dataframe(
+            pd.DataFrame(qatorlar).tail(120),
+            use_container_width=True,
+            hide_index=True,
+            height=420,
+        )
+        progress.progress(int(tartib / soni * 100), f"{tartib}/{soni} tranzaksiya tekshirildi")
+
+        if pauza > 0:
+            time.sleep(float(pauza))
+
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    final_m = oqim_metrikalari(y_true, y_pred, y_prob)
+    with matrix_joyi.container():
+        col_a, col_b = st.columns([1, 1])
+        with col_a:
+            fig = px.imshow(
+                cm,
+                text_auto=True,
+                color_continuous_scale="Blues",
+                x=["Bashorat: Normal", "Bashorat: Fraud"],
+                y=["Haqiqiy: Normal", "Haqiqiy: Fraud"],
+                title="Simulyatsiya chalkash matritsasi",
+            )
+            fig.update_coloraxes(showscale=False)
+            st.plotly_chart(fig, use_container_width=True)
+        with col_b:
+            roc_text = "N/A" if final_m["roc_auc"] is None else f"{final_m['roc_auc']:.4f}"
+            st.markdown(
+                f"""
+**Yakuniy natija**
+
+- Accuracy: `{final_m['accuracy']:.4f}`
+- Precision: `{final_m['precision']:.4f}`
+- Recall: `{final_m['recall']:.4f}`
+- F1-score: `{final_m['f1']:.4f}`
+- ROC-AUC: `{roc_text}`
+                """
+            )
+
+    progress.progress(100, "Simulyatsiya yakunlandi")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -721,6 +899,11 @@ def tekshirish_tab() -> None:
         f"Chegara: {art['chegara']:.2f}  |  "
         f"O'quv to'plamidagi fraud ulushi: {art['fraud_ulushi']*100:.1f}%"
     )
+
+    render_oqim_simulyatsiyasi(art, malumotlarni_yukla())
+
+    st.divider()
+    st.subheader("Bitta tranzaksiyani qo'lda tekshirish")
 
     with st.form("tekshirish_formasi"):
         col1, col2, col3 = st.columns(3)
