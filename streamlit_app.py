@@ -257,7 +257,7 @@ def modelni_yukla() -> dict | None:
 def tranzaksiyani_tekshir(artifact: dict, tx: dict) -> dict:
     """
     Bitta tranzaksiya uchun fraud ehtimolligini hisoblaydi.
-    Qaror qoidasi: chegara × 1.6 → BLOCK, chegara → REVIEW, aks holda ALLOW.
+    Qaror qoidasi: chegara * 1.6 dan yuqori BLOCK, chegara usti REVIEW.
     """
     # Normallashtirilgan miqdorni hisoblash (o'rgatish statistikasidan)
     amt = float(tx.get("amount", 100))
@@ -276,8 +276,9 @@ def tranzaksiyani_tekshir(artifact: dict, tx: dict) -> dict:
     )
 
     chegara = artifact["chegara"]
-    # Blok chegarasini hech qachon 0.70 dan pastga tushirmaylik
-    if ehtimol >= min(chegara * 1.6, 0.70):
+    # Blok chegarasi juda past bo'lib qolmasligi uchun 70% dan boshlaymiz.
+    blok_chegara = max(chegara * 1.6, 0.70)
+    if ehtimol >= blok_chegara:
         xavf, qaror = "HIGH", "BLOCK"
     elif ehtimol >= chegara:
         xavf, qaror = "MEDIUM", "REVIEW"
@@ -862,7 +863,7 @@ def main() -> None:
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊  Ko'rinish",
-        "🔍  Ko'zgु",
+        "🔍  Ko'zgu",
         "🤖  O'rgatish",
         "📈  Baholash",
         "⚡  Jonli Tekshirish",

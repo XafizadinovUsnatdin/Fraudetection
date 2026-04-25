@@ -1,5 +1,38 @@
 # SafeNet AI Anti-Fraud Demo
 
+## Streamlit Fraud Detection App
+
+Asosiy demo Streamlit orqali ishlaydi:
+
+```bash
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+Brauzerda oching:
+
+```text
+http://localhost:8501
+```
+
+Joriy ML sozlamalari:
+
+- Dataset: `data/synthetic_transactions.csv`
+- Hajm: 50,000 qator, 23 ustun
+- Fraud ulushi: 5%
+- Model: Random Forest + 5-fold stratifikatsiyali cross-validation
+- Test ROC-AUC: taxminan 0.90, ya'ni 100% mukammal emas va real hayotga yaqinroq
+
+Datasetni qayta yaratish:
+
+```bash
+python data\generate_dataset.py
+```
+
+Modelni Streamlit ichidagi **O'rgatish** tabidan qayta o'rgatish mumkin.
+
 SafeNet is a hackathon-ready fintech anti-fraud demo with:
 
 - ML fraud probability model

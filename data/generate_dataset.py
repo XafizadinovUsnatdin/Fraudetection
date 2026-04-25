@@ -16,19 +16,19 @@ import pandas as pd
 
 SEED = 42
 N_JAMI = 50_000          # jami tranzaksiyalar soni
-FRAUD_ULUSHI = 0.05      # 5% fraud (real industria: 0.1–10%)
+FRAUD_ULUSHI = 0.05      # 5% fraud (real sanoatda odatda 0.1-10%)
 CHIQISH = Path(__file__).parent / "synthetic_transactions.csv"
 
 # Qurilmalar va ehtimolliklar
 QURILMALAR = ["ios", "android", "windows", "chrome", "safari", "linux", "emulator", "unknown"]
-QURILMA_EHTIMOL_NORMAL = [0.28, 0.32, 0.15, 0.12, 0.07, 0.03, 0.02, 0.01]
-QURILMA_EHTIMOL_FRAUD  = [0.15, 0.18, 0.10, 0.08, 0.05, 0.03, 0.26, 0.15]
+QURILMA_EHTIMOL_NORMAL = [0.27, 0.31, 0.15, 0.12, 0.07, 0.03, 0.03, 0.02]
+QURILMA_EHTIMOL_FRAUD  = [0.22, 0.25, 0.13, 0.10, 0.06, 0.03, 0.12, 0.09]
 
 # Joylashuvlar
 JOYLAR = ["tashkent", "samarkand", "fergana", "bukhara", "almaty",
           "istanbul", "dubai", "foreign_ip", "unknown"]
-JOY_EHTIMOL_NORMAL = [0.38, 0.18, 0.14, 0.10, 0.07, 0.06, 0.04, 0.02, 0.01]
-JOY_EHTIMOL_FRAUD  = [0.18, 0.09, 0.07, 0.05, 0.09, 0.12, 0.10, 0.18, 0.12]
+JOY_EHTIMOL_NORMAL = [0.36, 0.17, 0.13, 0.10, 0.08, 0.06, 0.04, 0.04, 0.02]
+JOY_EHTIMOL_FRAUD  = [0.27, 0.13, 0.10, 0.08, 0.09, 0.08, 0.06, 0.11, 0.08]
 
 # Soatlar bo'yicha og'irliklar (0-23)
 # Normal: 8-22 soat ko'proq, tunda kam
@@ -71,14 +71,21 @@ def generate(seed: int = SEED) -> pd.DataFrame:
 
     # ── Asosiy maydonlar ────────────────────────────────────────────────────
 
-    # Miqdorlar: lognormal, lekin sezilarli kesishuv bor
-    # Normal: median ~$95, Fraud: median ~$280 — lekin har ikkisida keng tarqalish
-    miqdor_normal = rng.lognormal(np.log(95),  0.85, n_normal).clip(1.0, 8_000)
-    miqdor_fraud  = rng.lognormal(np.log(280), 1.20, n_fraud ).clip(5.0, 50_000)
+    # Miqdorlar: har ikkala sinfda keng tarqalish bor.
+    # Fraud o'rtachasi biroz yuqori, lekin kichik fraud va katta normal
+    # tranzaksiyalar ham ko'p bo'lgani uchun model mukammal ajrata olmaydi.
+    miqdor_normal = rng.lognormal(np.log(120), 1.05, n_normal).clip(1.0, 25_000)
+    miqdor_fraud  = rng.lognormal(np.log(190), 1.15, n_fraud ).clip(1.0, 35_000)
 
-    # 10% fraud tranzaksiyalar ataylab kichik miqdor bilan (aniqlashdan qochish)
-    mikro_fraud = rng.random(n_fraud) < 0.10
-    miqdor_fraud[mikro_fraud] = rng.lognormal(np.log(20), 0.5, mikro_fraud.sum()).clip(1, 80)
+    # Fraudlarning bir qismi past miqdor bilan yashirinadi.
+    mikro_fraud = rng.random(n_fraud) < 0.22
+    miqdor_fraud[mikro_fraud] = rng.lognormal(np.log(45), 0.8, mikro_fraud.sum()).clip(1, 250)
+
+    # Normal tranzaksiyalarning bir qismi katta miqdorli bo'ladi.
+    katta_normal = rng.random(n_normal) < 0.08
+    miqdor_normal[katta_normal] = rng.lognormal(
+        np.log(450), 0.9, katta_normal.sum()
+    ).clip(80, 20_000)
 
     user_id_normal = [f"user_{rng.integers(1, 801):03d}" for _ in range(n_normal)]
     user_id_fraud  = [f"user_{rng.integers(1, 801):03d}" for _ in range(n_fraud)]
@@ -111,22 +118,23 @@ def generate(seed: int = SEED) -> pd.DataFrame:
     # ── Qo'shimcha xususiyatlar ──────────────────────────────────────────────
 
     # Tranzaksiya chastotasi (kunlik)
-    # Normal foydalanuvchilar: 1-8, ayrim aktiv foydalanuvchilar: 10+
-    # Fraud: tezkor ketma-ket tranzaksiyalar, lekin ayrimlari sekin harakat qiladi
-    chastota_n = rng.integers(1, 9,  n_jami)
-    chastota_f = rng.integers(4, 22, n_jami)
-    # 25% fraudlar past chastota bilan (aniqlashdan qochish uchun)
-    past_chastota = rng.random(n_jami) < 0.25
-    chastota_f = np.where(past_chastota, rng.integers(1, 5, n_jami), chastota_f)
+    # Normal va fraud chastotalari ataylab yaqinroq: real hayotda aktiv
+    # normal mijozlar ham ko'p tranzaksiya qiladi.
+    chastota_n = rng.integers(1, 13, n_jami)
+    chastota_f = rng.integers(2, 17, n_jami)
+    past_chastota = rng.random(n_jami) < 0.38
+    chastota_f = np.where(past_chastota, rng.integers(1, 7, n_jami), chastota_f)
     df["Transaction Frequency"] = np.where(is_fraud, chastota_f, chastota_n).clip(1, 30)
 
     # Oxirgi tranzaksiyadan o'tgan vaqt (daqiqa)
-    # Normal: uzoqroq tanaffus (o'rtacha ~4 soat)
-    # Fraud: qisqa tanaffus (o'rtacha ~40 daqiqa), lekin ba'zilari kechroq
-    vaqt_n = rng.exponential(240, n_jami).clip(5,   1440)
-    vaqt_f = rng.exponential(40,  n_jami).clip(0.5, 500)
-    # 20% fraudlar normal vaqt oralig'ida
-    vaqt_f = np.where(rng.random(n_jami) < 0.20, rng.exponential(200, n_jami).clip(30, 1440), vaqt_f)
+    # Vaqt oralig'i: fraud odatda tezroq, lekin sezilarli kesishuv bor.
+    vaqt_n = rng.exponential(220, n_jami).clip(1,   1440)
+    vaqt_f = rng.exponential(130, n_jami).clip(0.5, 1440)
+    vaqt_f = np.where(
+        rng.random(n_jami) < 0.35,
+        rng.exponential(240, n_jami).clip(30, 1440),
+        vaqt_f,
+    )
     df["Time Since Last Transaction"] = np.where(is_fraud, vaqt_f, vaqt_n).round(1)
 
     # Qurilma barmoq izi (hash — ML uchun bevosita foydali emas, identifikator sifatida)
@@ -135,43 +143,44 @@ def generate(seed: int = SEED) -> pd.DataFrame:
         for i, row in df.iterrows()
     ]
 
-    # ── Binary xavf belgilari (shovqin_std=0.12 → katta kesishuv) ──────────
+    # Binary xavf belgilari: farqlar kichikroq, shovqin esa kattaroq.
+    # Bu "shubhali normal" va "toza fraud" holatlarini ko'paytiradi.
 
     # Geo-joylashuv anomaliyasi
-    df["Geo-Location Flags"] = shovqinli_binary(rng, is_fraud, 0.32, 0.05, 0.10)
+    df["Geo-Location Flags"] = shovqinli_binary(rng, is_fraud, 0.18, 0.07, 0.13)
 
     # Joylashuv nomuvofiqlik
-    df["Location-Inconsistent Transactions"] = shovqinli_binary(rng, is_fraud, 0.28, 0.06, 0.09)
+    df["Location-Inconsistent Transactions"] = shovqinli_binary(rng, is_fraud, 0.17, 0.07, 0.12)
 
-    # Qabul qiluvchi tasdiqlangan (1=ha — fraud uchun kamroq tasdiqlangan)
-    df["Recipient Verification Status"] = shovqinli_binary(rng, is_fraud, 0.42, 0.94, 0.08)
+    # Qabul qiluvchi tasdiqlangan (1=ha). Fraudda biroz kamroq, lekin
+    # ko'p fraudlar ham tasdiqlangan qabul qiluvchidan foydalanadi.
+    df["Recipient Verification Status"] = shovqinli_binary(rng, is_fraud, 0.78, 0.93, 0.09)
 
     # Qabul qiluvchi qora ro'yxatda
-    df["Recipient Blacklist Status"] = shovqinli_binary(rng, is_fraud, 0.16, 0.02, 0.05)
+    df["Recipient Blacklist Status"] = shovqinli_binary(rng, is_fraud, 0.07, 0.02, 0.05)
 
     # VPN/Proxy ishlatish
-    df["VPN or Proxy Usage"] = shovqinli_binary(rng, is_fraud, 0.26, 0.04, 0.07)
+    df["VPN or Proxy Usage"] = shovqinli_binary(rng, is_fraud, 0.16, 0.05, 0.10)
 
     # Savdo kategoriyasi nomuvofiqlik
-    df["Merchant Category Mismatch"] = shovqinli_binary(rng, is_fraud, 0.20, 0.07, 0.09)
+    df["Merchant Category Mismatch"] = shovqinli_binary(rng, is_fraud, 0.14, 0.08, 0.10)
 
     # Hisob yoshi (kunlarda)
-    # Yangi hisoblar fraudga ko'proq duchor, lekin katta kesishuv bor
-    yosh_n = rng.integers(60,  3650, n_jami)
-    yosh_f = rng.integers(1,   730,  n_jami)
-    # 30% fraudlar eski hisoblardan (eski hisob sotib olingan yoki buzilgan)
-    eski_fraud = rng.random(n_jami) < 0.30
-    yosh_f = np.where(eski_fraud, rng.integers(400, 3000, n_jami), yosh_f)
+    # Yangi hisoblar riskliroq, lekin eski buzilgan hisoblar ham mavjud.
+    yosh_n = rng.integers(20, 3650, n_jami)
+    yosh_f = rng.integers(1,  2500, n_jami)
+    eski_fraud = rng.random(n_jami) < 0.48
+    yosh_f = np.where(eski_fraud, rng.integers(300, 3650, n_jami), yosh_f)
     df["Account Age"] = np.where(is_fraud, yosh_f, yosh_n)
 
     # Kunlik limit oshgan
-    df["User Daily Limit Exceeded"] = shovqinli_binary(rng, is_fraud, 0.25, 0.03, 0.06)
+    df["User Daily Limit Exceeded"] = shovqinli_binary(rng, is_fraud, 0.13, 0.04, 0.08)
 
     # Yaqinda yuqori miqdorli tranzaksiya
-    df["Recent High-Value Transaction Flags"] = shovqinli_binary(rng, is_fraud, 0.30, 0.12, 0.10)
+    df["Recent High-Value Transaction Flags"] = shovqinli_binary(rng, is_fraud, 0.19, 0.13, 0.11)
 
     # Avvalgi firibgarlik xatti-harakati
-    df["Past Fraudulent Behavior Flags"] = shovqinli_binary(rng, is_fraud, 0.20, 0.04, 0.06)
+    df["Past Fraudulent Behavior Flags"] = shovqinli_binary(rng, is_fraud, 0.11, 0.04, 0.07)
 
     # Tranzaksiya miqdori (amount nusxasi)
     df["Transaction Amount"] = df["amount"]
@@ -182,10 +191,10 @@ def generate(seed: int = SEED) -> pd.DataFrame:
     df["Normalized Transaction Amount"] = ((df["amount"] - amt_min) / (amt_max - amt_min)).round(4)
 
     # Shikoyatlar soni
-    shik_n = rng.integers(0, 3, n_jami)
-    shik_f = rng.integers(0, 8, n_jami)
-    # 40% fraudlar 0 shikoyat bilan (yangi yoki yashiringan)
-    shik_f = np.where(rng.random(n_jami) < 0.40, 0, shik_f)
+    shik_n = rng.integers(0, 4, n_jami)
+    shik_f = rng.integers(0, 6, n_jami)
+    # Ko'p fraudlar hali shikoyatga tushmagan bo'lishi mumkin.
+    shik_f = np.where(rng.random(n_jami) < 0.58, 0, shik_f)
     df["Fraud Complaints Count"] = np.where(is_fraud, shik_f, shik_n)
 
     # Nishon yorlig'i (isFraud nusxasi)
@@ -205,7 +214,7 @@ def generate(seed: int = SEED) -> pd.DataFrame:
     df.to_csv(CHIQISH, index=False)
 
     fraud_soni = int(df["isFraud"].sum())
-    print(f"✓  Jami: {n_jami:,} ta tranzaksiya")
+    print(f"OK  Jami: {n_jami:,} ta tranzaksiya")
     print(f"   Fraud: {fraud_soni:,} ({fraud_soni/n_jami*100:.1f}%)")
     print(f"   Normal: {n_jami - fraud_soni:,}")
     print(f"   Saqlandi: {CHIQISH}")
