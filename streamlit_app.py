@@ -520,7 +520,7 @@ def render_oqim_simulyatsiyasi(art: dict, df: pd.DataFrame) -> None:
     with col4:
         seed = st.number_input("Seed", 1, 999_999, 42)
 
-    boshlash = st.button("Oqimni boshlash", type="secondary", use_container_width=True)
+    boshlash = st.button("Oqimni boshlash", type="secondary", width="stretch")
     metrika_joyi = st.empty()
     jadval_joyi = st.empty()
     matrix_joyi = st.empty()
@@ -573,7 +573,7 @@ def render_oqim_simulyatsiyasi(art: dict, df: pd.DataFrame) -> None:
 
         jadval_joyi.dataframe(
             pd.DataFrame(qatorlar).tail(120),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             height=420,
         )
@@ -596,7 +596,7 @@ def render_oqim_simulyatsiyasi(art: dict, df: pd.DataFrame) -> None:
                 title="Simulyatsiya chalkash matritsasi",
             )
             fig.update_coloraxes(showscale=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         with col_b:
             roc_text = "N/A" if final_m["roc_auc"] is None else f"{final_m['roc_auc']:.4f}"
             st.markdown(
@@ -645,7 +645,7 @@ def korinish_tab(df: pd.DataFrame) -> None:
             hole=0.42,
         )
         fig.update_traces(textposition="outside", textinfo="percent+label")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col2:
         # Qurilma bo'yicha fraud darajasi
@@ -663,7 +663,7 @@ def korinish_tab(df: pd.DataFrame) -> None:
             labels={"daraja": "Fraud darajasi (%)", "device": "Qurilma"},
         )
         fig.update_coloraxes(showscale=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     col3, col4 = st.columns(2)
     with col3:
@@ -683,7 +683,7 @@ def korinish_tab(df: pd.DataFrame) -> None:
             title="Soat bo'yicha fraud darajasi",
             xaxis_title="Soat (0–23)", yaxis_title="Fraud darajasi (%)",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col4:
         # Tranzaksiya miqdori taqsimoti (namuna)
@@ -696,7 +696,7 @@ def korinish_tab(df: pd.DataFrame) -> None:
             title="Tranzaksiya miqdori taqsimoti",
             labels={"amount": "Miqdor ($)", "color": "Yorliq"},
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # Joylashuv bo'yicha fraud darajasi — gorizontal bar
     st.subheader("Joylashuv bo'yicha fraud darajasi")
@@ -714,7 +714,7 @@ def korinish_tab(df: pd.DataFrame) -> None:
         labels={"daraja": "Fraud darajasi (%)", "location": "Joylashuv"},
     )
     fig.update_coloraxes(showscale=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -763,7 +763,7 @@ def kozgu_tab(df: pd.DataFrame) -> None:
             title="Miqdor va Soat (namuna)",
             labels={"amount": "Miqdor ($)", "transaction_hour": "Soat"},
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col2:
         # Korrelyatsiya matritsasi
@@ -777,7 +777,7 @@ def kozgu_tab(df: pd.DataFrame) -> None:
             color_continuous_scale="RdBu_r", zmin=-1, zmax=1,
             title="Xususiyatlar Korrelyatsiya Matritsasi",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # Binary xavf belgilari faolligi
     st.subheader("Binary xavf belgilari faollik darajasi (%)")
@@ -792,10 +792,10 @@ def kozgu_tab(df: pd.DataFrame) -> None:
     )
     fig.update_coloraxes(showscale=False)
     fig.update_layout(xaxis_tickangle=-30)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     st.subheader("Namuna (birinchi 200 qator)")
-    st.dataframe(fdf.head(200), use_container_width=True)
+    st.dataframe(fdf.head(200), width="stretch")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -866,7 +866,7 @@ def orgatish_tab() -> None:
                 f"{m['kv_qamrov']:.4f}",
             ],
         })
-        st.dataframe(kv_df, use_container_width=False)
+        st.dataframe(kv_df, width="content")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -903,7 +903,7 @@ def baholash_tab() -> None:
             title="Chalkash Matritsa (Confusion Matrix)",
         )
         fig.update_coloraxes(showscale=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col2:
         # ROC egri chizig'i
@@ -926,7 +926,7 @@ def baholash_tab() -> None:
             yaxis_title="Haqiqiy musbat darajasi (TPR)",
             legend=dict(x=0.55, y=0.1),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     col3, col4 = st.columns(2)
     with col3:
@@ -945,7 +945,7 @@ def baholash_tab() -> None:
             xaxis_title="Qamrov (Recall)",
             yaxis_title="Aniqlik (Precision)",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col4:
         # Eng muhim xususiyatlar
@@ -957,7 +957,7 @@ def baholash_tab() -> None:
         )
         fig.update_layout(yaxis={"categoryorder": "total ascending"})
         fig.update_coloraxes(showscale=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # Tasnif hisoboti
     st.subheader("Tasnif Hisoboti (Classification Report)")
@@ -965,7 +965,7 @@ def baholash_tab() -> None:
     hisobot_df = pd.DataFrame(hisobot).T.loc[["0", "1", "macro avg", "weighted avg"]]
     hisobot_df.index = ["Normal", "Fraud", "Makro O'rtacha", "Og'irlikli O'rtacha"]
     hisobot_df = hisobot_df.drop(columns=["support"], errors="ignore")
-    st.dataframe(hisobot_df.style.format("{:.4f}"), use_container_width=False)
+    st.dataframe(hisobot_df.style.format("{:.4f}"), width="content")
 
     # Modelni tushuntirish
     with st.expander("Ko'rsatkichlarni qanday o'qish kerak?"):
@@ -1040,7 +1040,7 @@ def tekshirish_tab() -> None:
             eski_fraud     = st.checkbox("Avvalgi firibgarlik xatti-harakati")
 
         yuborildi = st.form_submit_button(
-            "🔍  Tranzaksiyani Tekshir", type="primary", use_container_width=True
+            "🔍  Tranzaksiyani Tekshir", type="primary", width="stretch"
         )
 
     if not yuborildi:
@@ -1111,7 +1111,7 @@ def tekshirish_tab() -> None:
         },
     ))
     fig.update_layout(height=320, margin=dict(t=60, b=20))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Xavf omillari ro'yxati
     st.subheader("Xavf omillari tahlili")
