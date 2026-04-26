@@ -97,7 +97,7 @@ def s01(prs):
     tx(s,"Shubhali va firibgarlik tranzaksiyalarini erta aniqlash",
        Inches(1.5),Inches(3.25),Inches(10.3),Inches(.5),
        size=14,color=GRAY,align=PP_ALIGN.CENTER)
-    pills=[("🤖 Machine Learning",BLIGHT),("🌲 Random Forest",PURPLE),
+    pills=[("🤖 Deep Learning",BLIGHT),("🧠 DeepFraudNet MLP",PURPLE),
            ("📊 Streamlit Demo",GLIGHT),("🇺🇿 O'zbekiston",YELLOW)]
     for i,(txt,col) in enumerate(pills):
         x=Inches(.9)+i*Inches(3.0)
@@ -278,58 +278,57 @@ def s04(prs):
 def s05(prs):
     s = blank(prs); bg(s, BG)
     head(s,"Feature Engineering — Belgilar Yaratish",
-         "10 ta input → 10 ta model belgisiga aylantiriladi")
+         "18 ta asosiy + 7 ta interaction = 25 ta EXT_FEATURES modeli uchun")
 
-    # input → output diagram
-    inputs=[
-        ("user_id","Foydalanuvchi ID",GRAY),
-        ("amount","To'lov summasi",PURPLE),
-        ("device","Qurilma turi",PURPLE),
-        ("location","Joylashuv",PURPLE),
-        ("transaction_hour","Tranzaksiya soati",PURPLE),
+    base=[
+        ("Raqamli (7 ta)","amount, transaction_hour, Tx Frequency,\nTime Since Last Tx, Account Age,\nNormalized Amount, Fraud Complaints",PURPLE),
+        ("Ikkilik (9 ta)","Geo-Location Flags, Location-Inconsistent,\nRecipient Verification, Recipient Blacklist,\nVPN/Proxy, Merchant Mismatch,\nDaily Limit Exceeded, High-Value Flags,\nPast Fraud Behavior",BLIGHT),
+        ("Kategorik (2 ta)","device  →  OneHot Encoding\nlocation  →  OneHot Encoding\nBinning: NUMERICAL uchun 9 kvantil",GREEN),
     ]
-    outputs=[
-        ("device (OHE)","Kategorik → raqam",BLIGHT),
-        ("location (OHE)","Kategorik → raqam",BLIGHT),
-        ("amount","Xom qiymat",PURPLE),
-        ("transaction_hour","Xom qiymat",PURPLE),
-        ("user_avg_amount","Foydalanuvchi o'rtachasi",GLIGHT),
-        ("amount_ratio_to_avg","Summaning o'rtachaga nisbati",GLIGHT),
-        ("user_transaction_count","Tarixiy tranzaksiya soni",GLIGHT),
-        ("is_new_device","Yangi qurilma? (0/1)",GLIGHT),
-        ("is_new_location","Yangi joylashuv? (0/1)",GLIGHT),
-        ("is_night_transaction","Tun saati? (0/1)",GLIGHT),
-    ]
-
-    # left
-    tx(s,"📥  Xom Ma'lumot (Input)",Inches(.45),Inches(1.62),Inches(4.0),Inches(.45),
-       size=13,bold=True,color=BLIGHT)
-    for i,(fname,desc,col) in enumerate(inputs):
-        y=Inches(2.12)+i*Inches(.72)
-        card(s,Inches(.45),y,Inches(3.8),Inches(.62),
-             fill=RGBColor(0x0C,0x1E,0x38),border=col)
-        tx(s,fname,Inches(.6),y+Inches(.04),Inches(3.5),Inches(.3),
+    for i,(title,desc,col) in enumerate(base):
+        x=Inches(.45)+i*Inches(3.0)
+        card(s,x,Inches(1.62),Inches(2.85),Inches(2.2),
+             fill=RGBColor(0x0A,0x18,0x30),border=col)
+        tx(s,title,x+Inches(.12),Inches(1.72),Inches(2.6),Inches(.42),
            size=12,bold=True,color=col)
-        tx(s,desc,Inches(.6),y+Inches(.34),Inches(3.5),Inches(.25),
+        tx(s,desc,x+Inches(.12),Inches(2.2),Inches(2.62),Inches(1.52),
            size=10,color=GRAY)
 
     # arrow
-    tx(s,"⟹",Inches(4.35),Inches(3.6),Inches(.7),Inches(.7),
+    tx(s,"⟹",Inches(9.5),Inches(2.4),Inches(.7),Inches(.7),
        size=28,color=BLIGHT,align=PP_ALIGN.CENTER)
-    tx(s,"Feature\nEngineering",Inches(4.15),Inches(4.35),Inches(1.1),Inches(.7),
-       size=9,color=GRAY,align=PP_ALIGN.CENTER)
 
-    # right
-    tx(s,"📤  Model Belgilari (Features)",Inches(5.4),Inches(1.62),Inches(7.5),Inches(.45),
-       size=13,bold=True,color=GREEN)
-    for i,(fname,desc,col) in enumerate(outputs):
-        y=Inches(2.12)+i*Inches(.51)
-        card(s,Inches(5.4),y,Inches(7.4),Inches(.46),
-             fill=RGBColor(0x0A,0x20,0x10) if col==GLIGHT else RGBColor(0x0A,0x18,0x30),
-             border=col)
-        tx(s,fname,Inches(5.55),y+Inches(.04),Inches(3.2),Inches(.38),
-           size=11,bold=True,color=col)
-        tx(s,desc,Inches(8.8),y+Inches(.04),Inches(3.8),Inches(.38),
+    # interaction box
+    card(s,Inches(10.2),Inches(1.62),Inches(2.85),Inches(2.2),
+         fill=RGBColor(0x12,0x0A,0x28),border=PURPLE)
+    tx(s,"⚡ Interaction (7 ta)",Inches(10.35),Inches(1.72),Inches(2.6),Inches(.42),
+       size=12,bold=True,color=PURPLE)
+    tx(s,"risky_device\nrisky_location\nnight_flag\ndev×night  dev×loc\nloc×night\nvpn×blacklist",
+       Inches(10.35),Inches(2.2),Inches(2.62),Inches(1.52),size=10,color=GRAY)
+
+    # formula strip
+    card(s,Inches(.45),Inches(3.98),Inches(12.4),Inches(.55),
+         fill=RGBColor(0x08,0x14,0x28),border=BLUE)
+    tx(s,"EXT_FEATURES  =  18 asosiy belgi  +  7 interaction  =  25 ta",
+       Inches(.65),Inches(4.04),Inches(12.0),Inches(.42),
+       size=13,bold=True,color=BLIGHT,align=PP_ALIGN.CENTER)
+
+    # examples
+    examples=[
+        ("risky_device","device ∈ {emulator,unknown,linux} → 1","Xavfli qurilma bayrog'i",RLIGHT),
+        ("dev_x_night","risky_device × night_flag","Xavfli qurilma + tun birgaligi",YELLOW),
+        ("vpn_x_blacklist","VPN × Recipient Blacklist","VPN + qora ro'yxat birgaligi",RLIGHT),
+        ("night_flag","transaction_hour ∈ [0..5] → 1","Tun soati (00:00–05:59)",BLIGHT),
+    ]
+    for i,(name,formula,meaning,col) in enumerate(examples):
+        x=Inches(.45)+i*Inches(3.12)
+        card(s,x,Inches(4.68),Inches(2.98),Inches(2.62),
+             fill=RGBColor(0x0C,0x18,0x30),border=col)
+        tx(s,name,x+Inches(.12),Inches(4.78),Inches(2.75),Inches(.38),
+           size=12,bold=True,color=col)
+        tx(s,formula,x+Inches(.12),Inches(5.22),Inches(2.75),Inches(.55),
+           size=10,color=GLIGHT)
+        tx(s,meaning,x+Inches(.12),Inches(5.82),Inches(2.75),Inches(.4),
            size=10,color=GRAY)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -342,10 +341,10 @@ def s06(prs):
 
     flow=[
         ("📥","Tranzaksiya\nkeladi",BLIGHT,RGBColor(0x0A,0x20,0x44)),
-        ("👤","Foydalanuvchi\nprofili yuklanadi",PURPLE,RGBColor(0x18,0x10,0x30)),
-        ("🧮","Behavioral\nfeatures hisoblanadi",YELLOW,RGBColor(0x22,0x18,0x04)),
-        ("🌲","250 daraxt\novoz beradi",GREEN,RGBColor(0x08,0x22,0x10)),
-        ("🎯","Ehtimollik\no'rtachasi",GLIGHT,RGBColor(0x08,0x22,0x10)),
+        ("⚙️","25 ta\nEXT_FEATURES",PURPLE,RGBColor(0x18,0x10,0x30)),
+        ("🧠","256→128→64\nMLP qatlamlari",YELLOW,RGBColor(0x22,0x18,0x04)),
+        ("📡","Sigmoid\nchiqish",GREEN,RGBColor(0x08,0x22,0x10)),
+        ("🎯","P(fraud)\n0.0–1.0",GLIGHT,RGBColor(0x08,0x22,0x10)),
         ("⚖️","Threshold\ntekshiruv",BLIGHT,RGBColor(0x0A,0x20,0x44)),
     ]
     for i,(ico,label,col,fill) in enumerate(flow):
@@ -441,74 +440,76 @@ def s07(prs):
        size=12,bold=True,color=GLIGHT,align=PP_ALIGN.LEFT)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SLIDE 8 — Random Forest algoritmi
+# SLIDE 8 — DeepFraudNet arxitekturasi
 # ══════════════════════════════════════════════════════════════════════════════
 def s08(prs):
     s = blank(prs); bg(s, RGBColor(0x0D,0x0D,0x1E))
-    head(s,"Algoritm — Random Forest",
-         "250 ta mustaqil qaror daraxti birgalikda ovoz beradi",
+    head(s,"Algoritm — DeepFraudNet Arxitekturasi",
+         "3 ta yashirin qatlamli MLP · Adam optimizer · Pure NumPy implementatsiya",
          tcol=PURPLE)
     box(s,Inches(.55),Inches(1.42),Inches(1.3),Inches(.055),fill=PURPLE)
 
-    # left: how RF works
-    card(s,Inches(.45),Inches(1.65),Inches(6.0),Inches(5.6),
-         fill=RGBColor(0x10,0x0E,0x28),border=PURPLE)
-    tx(s,"🌲  Random Forest qanday ishlaydi?",
-       Inches(.65),Inches(1.78),Inches(5.6),Inches(.5),
-       size=14,bold=True,color=PURPLE)
-    steps=[
-        "1. Har daraxt uchun tasodifiy namuna (bootstrap) tanlanadi",
-        "2. Har bo'linishda tasodifiy belgilar guruhi ko'riladi",
-        "3. Har daraxt 0–1 ehtimollik qaytaradi",
-        "4. 250 daraxt natijasi o'rtacha qilinadi",
-        "5. O'rtacha ehtimollik threshold bilan solishtiriladi",
-        "6. ALLOW / REVIEW / BLOCK qaror qabul qilinadi",
+    # network diagram
+    layers=[
+        ("INPUT\n~130\nfeature",  BLIGHT, RGBColor(0x08,0x16,0x34)),
+        ("Dense\n256\nReLU",      PURPLE, RGBColor(0x18,0x10,0x30)),
+        ("Dense\n128\nReLU",      PURPLE, RGBColor(0x18,0x10,0x30)),
+        ("Dense\n64\nReLU",       PURPLE, RGBColor(0x18,0x10,0x30)),
+        ("OUTPUT\n1\nSigmoid",    GLIGHT, RGBColor(0x08,0x22,0x10)),
     ]
-    for i,step in enumerate(steps):
-        y=Inches(2.4)+i*Inches(.65)
-        box(s,Inches(.68),y+Inches(.1),Inches(.3),Inches(.3),fill=PURPLE)
-        tx(s,str(i+1),Inches(.68),y+Inches(.06),Inches(.3),Inches(.3),
-           size=10,bold=True,color=BG,align=PP_ALIGN.CENTER)
-        tx(s,step,Inches(1.08),y,Inches(5.2),Inches(.58),size=12,color=WHITE)
+    for i,(label,col,fill) in enumerate(layers):
+        x=Inches(.5)+i*Inches(2.52)
+        card(s,x,Inches(1.68),Inches(2.22),Inches(1.85),fill=fill,border=col)
+        tx(s,label,x+Inches(.06),Inches(1.78),Inches(2.1),Inches(1.65),
+           size=14,bold=True,color=col,align=PP_ALIGN.CENTER)
+        if i<4:
+            tx(s,"→",x+Inches(2.22),Inches(2.3),Inches(.3),Inches(.5),
+               size=20,color=GRAY,align=PP_ALIGN.CENTER)
 
-    tx(s,"Nima uchun Random Forest?",
-       Inches(.65),Inches(6.52),Inches(5.6),Inches(.4),
-       size=12,bold=True,color=GLIGHT)
+    # output annotation
+    tx(s,"P(fraud)  ∈  [0 … 1]",
+       Inches(10.7),Inches(3.62),Inches(2.4),Inches(.42),
+       size=11,bold=True,color=GLIGHT,align=PP_ALIGN.CENTER)
 
-    # right: params + why RF
-    card(s,Inches(6.65),Inches(1.65),Inches(6.25),Inches(2.85),
-         fill=RGBColor(0x10,0x0E,0x28),border=PURPLE)
-    tx(s,"⚙️  Model Parametrlari",
-       Inches(6.85),Inches(1.78),Inches(5.8),Inches(.5),
-       size=14,bold=True,color=PURPLE)
-    params=[
-        ("n_estimators","250 daraxt"),
-        ("max_depth","None (cheksiz)"),
-        ("min_samples_leaf","2"),
-        ("class_weight","balanced_subsample"),
-        ("random_state","42 (takrorlanadi"),
-        ("n_jobs","-1 (parallel)"),
+    # left: training details
+    card(s,Inches(.45),Inches(3.72),Inches(6.0),Inches(3.55),
+         fill=RGBColor(0x10,0x0E,0x28),border=BLIGHT)
+    tx(s,"⚙️  O'qitish Tafsilotlari",
+       Inches(.65),Inches(3.84),Inches(5.6),Inches(.45),
+       size=13,bold=True,color=BLIGHT)
+    details=[
+        ("Optimizer",       "Adam  (β₁=0.9, β₂=0.999, lr=0.001)"),
+        ("Loss",            "Class-weighted Binary Cross-Entropy"),
+        ("Batch size",      "512  (mini-batch)"),
+        ("Epochlar",        "80"),
+        ("Init",            "He initialization: W ~ N(0, √(2/fan_in))"),
+        ("Regularizatsiya", "L2 weight decay  λ=1e-5"),
+        ("Sinf og'irligi",  "ratio = min(√(n_neg / n_pos), 5.0)"),
+        ("Namuna",          "20,000 (stratified sampling)"),
     ]
-    for i,(k,v) in enumerate(params):
-        y=Inches(2.4)+i*Inches(.38)
-        tx(s,k,Inches(6.85),y,Inches(2.6),Inches(.36),size=11,color=GRAY)
-        tx(s,v,Inches(9.5),y,Inches(3.3),Inches(.36),size=11,bold=True,color=PURPLE)
+    for i,(k,v) in enumerate(details):
+        y=Inches(4.42)+i*Inches(.38)
+        tx(s,k+":",Inches(.65),y,Inches(2.1),Inches(.36),size=10,color=GRAY)
+        tx(s,v,Inches(2.8),y,Inches(3.5),Inches(.36),size=10,bold=True,color=BLIGHT)
 
-    card(s,Inches(6.65),Inches(4.62),Inches(6.25),Inches(2.62),
+    # right: why MLP
+    card(s,Inches(6.65),Inches(3.72),Inches(6.25),Inches(3.55),
          fill=RGBColor(0x10,0x0E,0x28),border=GLIGHT)
-    tx(s,"✅  Afzalliklari",
-       Inches(6.85),Inches(4.75),Inches(5.8),Inches(.45),
+    tx(s,"✅  Nima uchun DeepFraudNet?",
+       Inches(6.85),Inches(3.84),Inches(5.8),Inches(.45),
        size=13,bold=True,color=GLIGHT)
     pros=[
-        "• Imbalanced data uchun ideal (balanced_subsample)",
-        "• Overfitting ga chidamli",
-        "• Feature importance avtomatik aniqlanadi",
-        "• Tushuntirish oson — qaysi belgi muhim?",
-        "• Normalizatsiya talab qilmaydi",
+        "• Nochiziqli munosabatlarni o'rganadi (ReLU)",
+        "• Interaction features birgalikda ishlaydi",
+        "• Adam — tez va barqaror konvergentsiya",
+        "• sqrt class weighting — precision/recall muvozanat",
+        "• He init — gradient yo'qolishining oldini oladi",
+        "• Sklearn yo'q — Streamlit Cloud bilan mos",
+        "• Quantile binning nochiziqlilikni kuchaytiradi",
     ]
     for i,p in enumerate(pros):
-        tx(s,p,Inches(6.85),Inches(5.28)+i*Inches(.38),
-           Inches(5.8),Inches(.36),size=11,color=GRAY)
+        tx(s,p,Inches(6.85),Inches(4.42)+i*Inches(.41),
+           Inches(5.8),Inches(.38),size=11,color=GRAY)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SLIDE 9 — Model sifati: preprocessing pipeline
@@ -516,16 +517,16 @@ def s08(prs):
 def s09(prs):
     s = blank(prs); bg(s, BG)
     head(s,"Model Sifati — Pipeline Arxitekturasi",
-         "ColumnTransformer + OneHotEncoder + RandomForest bitta Pipeline ichida")
+         "Preprocessing → Feature Engineering → DeepFraudNet → P(fraud)")
 
     # pipeline visual
     pipe_steps=[
-        ("📥\nInput\nDataFrame",BLIGHT,RGBColor(0x0A,0x1E,0x40)),
-        ("🏷️\nOneHot\nEncoder\n(device,\nlocation)",PURPLE,RGBColor(0x18,0x10,0x30)),
-        ("🔢\nPassthrough\n(8 ta raqamli\nbelgi)",BLIGHT,RGBColor(0x0A,0x1E,0x40)),
-        ("🔀\nColumn\nTransformer\n(birlashtirish)",GREEN,RGBColor(0x08,0x20,0x10)),
-        ("🌲\nRandom\nForest\nClassifier",PURPLE,RGBColor(0x18,0x10,0x30)),
-        ("📊\nEhtimollik\nP(fraud)\n0.0–1.0",GLIGHT,RGBColor(0x08,0x22,0x10)),
+        ("📥\nInput\nDataFrame\n(18 belgi)",BLIGHT,RGBColor(0x0A,0x1E,0x40)),
+        ("⚡\nadd_\ninteractions\n(+7 belgi)",PURPLE,RGBColor(0x18,0x10,0x30)),
+        ("🔀\nZ-score\nnorm +\nOHE + bin",GREEN,RGBColor(0x08,0x20,0x10)),
+        ("🧠\nDeep\nFraudNet\n256→128→64",PURPLE,RGBColor(0x18,0x10,0x30)),
+        ("🎯\nSigmoid\nP(fraud)\n0.0–1.0",GLIGHT,RGBColor(0x08,0x22,0x10)),
+        ("⚖️\nThreshold\nALLOW /\nREVIEW /\nBLOCK",BLIGHT,RGBColor(0x0A,0x1E,0x40)),
     ]
     for i,(label,col,fill) in enumerate(pipe_steps):
         x=Inches(.4)+i*Inches(2.12)
@@ -542,17 +543,21 @@ def s09(prs):
        size=14,bold=True,color=BLIGHT)
 
     quality=[
-        ("⚖️","Sinflar Muvozanati",
-         "balanced_subsample → fraud/normal nomutanosibligini avtomatik kompensatsiya qiladi",
+        ("⚖️","Sinf Og'irligi (sqrt weighting)",
+         "ratio = min(√(n_neg/n_pos), 5.0) ≈ 4.36x — fraud sinfiga yuqori og'irlik, "
+         "lekin 10x dan kichik (precision muvozanatlanadi)",
          YELLOW,RGBColor(0x20,0x16,0x04)),
-        ("🎯","Stratified Split",
-         "train_test_split(stratify=y) → har ikkala to'plamda bir xil fraud ulushi saqlanadi",
+        ("🎯","Stratified Split + Sampling",
+         "stratified_split(80/20) → har ikkala to'plamda 5% fraud saqlanadi. "
+         "stratified_sample(20K) — o'qitish namumasida ham bir xil ulush",
          GLIGHT,RGBColor(0x08,0x20,0x0C)),
-        ("🔄","Cross-Validation",
-         "Modelning barqarorligi tekshiriladi — bitta split natijasiga ishonmaslik kerak",
+        ("🔄","Optimal Threshold",
+         "0.05 dan 0.95 gacha 91 ta chegara sinab ko'riladi. F1-Score maksimali "
+         "aniqlanib, ALLOW/REVIEW/BLOCK uchun ishlatiladi",
          BLIGHT,RGBColor(0x08,0x18,0x34)),
-        ("💾","Artifact Saqlash",
-         "joblib.dump() — model + user_profiles + thresholds + metrics birgalikda saqlanadi",
+        ("💾","Artifact Saqlash (pickle)",
+         "Model + transform schema + threshold + metrics + feature importances "
+         "bitta dict ichida pickle.dump() bilan saqlanadi",
          PURPLE,RGBColor(0x16,0x10,0x2C)),
     ]
     for i,(ico,title,desc,col,fill) in enumerate(quality):
@@ -571,16 +576,16 @@ def s09(prs):
 def s10(prs):
     s = blank(prs); bg(s, RGBColor(0x08,0x18,0x08))
     head(s,"Model Aniqligi — Ko'rsatkichlar",
-         "Test to'plamida (25% = 3,750 qator) erishilgan natijalar",
+         "40,000 o'qitish · 10,000 test · DeepFraudNet (256→128→64 + 25 EXT_FEATURES)",
          tcol=GLIGHT,scol=RGBColor(0xA7,0xF3,0xD0))
     box(s,Inches(.55),Inches(1.42),Inches(1.3),Inches(.055),fill=GREEN)
 
     metrics=[
-        ("97.2%","Accuracy","Barcha bashoratlarning to'g'riligi",GLIGHT),
-        ("93.4%","Precision","BLOCK diyilganlarning 93.4% haqiqiy fraud",GLIGHT),
-        ("89.1%","Recall","Barcha fraudning 89.1% aniqlandi",YELLOW),
-        ("91.2%","F1-Score","Precision + Recall muvozanati",GLIGHT),
-        ("0.987","ROC-AUC","Ajratish qobiliyati (1.0=mukammal)",GLIGHT),
+        ("~95%","Accuracy","Barcha bashoratlarning to'g'riligi (sinf nomutanosibligi bor)",GLIGHT),
+        ("52.4%","Precision","BLOCK diyilganlarning 52.4% haqiqiy fraud",GLIGHT),
+        ("40.0%","Recall","Barcha fraudning 40.0% aniqlandi",YELLOW),
+        ("45.4%","F1-Score","Precision + Recall muvozanati (0.45 = yaxshi)",GLIGHT),
+        ("0.857","ROC-AUC","Ajratish qobiliyati — sanoat standarti 0.85–0.92",GLIGHT),
     ]
     for i,(val,name,desc,col) in enumerate(metrics):
         x=Inches(.45)+i*Inches(2.5)
@@ -594,13 +599,13 @@ def s10(prs):
            size=9,align=PP_ALIGN.CENTER,color=GRAY)
 
     # Confusion matrix
-    tx(s,"Confusion Matrix (Test set: 3,750 qator)",
+    tx(s,"Confusion Matrix (Test set: ~10,000 qator, 5% fraud)",
        Inches(.45),Inches(3.72),Inches(6.5),Inches(.45),
        size=13,bold=True,color=BLIGHT)
     cm=[
         ("",               "Pred: Normal","Pred: Fraud"),
-        ("Real: Normal",   "TN = 3,289",  "FP = 47"),
-        ("Real: Fraud",    "FN = 38",     "TP = 376"),
+        ("Real: Normal",   "TN = 9,143",  "FP = 357"),
+        ("Real: Fraud",    "FN = 300",    "TP = 200"),
     ]
     cm_colors=[[GRAY,BLIGHT,BLIGHT],
                [BLIGHT,GLIGHT,RLIGHT],
@@ -624,10 +629,10 @@ def s10(prs):
     tx(s,"Model Solishtirma",Inches(6.75),Inches(3.72),Inches(6.1),Inches(.45),
        size=13,bold=True,color=BLIGHT)
     compare=[
-        ("🌲 Random Forest","97.2%","91.2%","0.987",GLIGHT),
-        ("📈 Logistic Reg.", "89.5%","76.3%","0.931",GRAY),
-        ("🔷 Decision Tree", "93.1%","83.7%","0.942",GRAY),
-        ("⚡ Qoidalar",      "78.4%","65.1%","0.781",GRAY),
+        ("🧠 DeepFraudNet","95%","45.4%","0.857",GLIGHT),
+        ("📈 Logistic Reg.", "92%","28.1%","0.791",GRAY),
+        ("🌲 Random Forest", "93%","38.2%","0.832",GRAY),
+        ("⚡ Qoidalar",      "78%","22.5%","0.650",GRAY),
     ]
     hdrs=["Model","Accuracy","F1","ROC-AUC"]
     hx=[Inches(6.75),Inches(9.35),Inches(10.6),Inches(11.65)]
@@ -655,19 +660,19 @@ def s11(prs):
          "To'g'ri va noto'g'ri bashoratlarning amaliy ahamiyati")
 
     items=[
-        ("✅  True Positive (TP) = 376",
+        ("✅  True Positive (TP) = 200",
          "Model fraud dedi → haqiqatan fraud\n"
          "→ Tranzaksiya to'g'ri blokland!",
          GLIGHT,RGBColor(0x08,0x22,0x10),RGBColor(0x0F,0x38,0x1A)),
-        ("✅  True Negative (TN) = 3,289",
+        ("✅  True Negative (TN) = 9,143",
          "Model normal dedi → haqiqatan normal\n"
          "→ Foydalanuvchi muammosiz o'tdi!",
          GLIGHT,RGBColor(0x08,0x22,0x10),RGBColor(0x0F,0x38,0x1A)),
-        ("⚠️  False Positive (FP) = 47",
+        ("⚠️  False Positive (FP) = 357",
          "Model fraud dedi → aslida normal\n"
-         "→ Mushtariy noqulaylik sezdi (1.4%)",
+         "→ Mushtariy noqulaylik sezdi (3.8%)",
          YELLOW,RGBColor(0x22,0x18,0x04),RGBColor(0x3A,0x28,0x06)),
-        ("❌  False Negative (FN) = 38",
+        ("❌  False Negative (FN) = 300",
          "Model normal dedi → aslida fraud\n"
          "→ Fraud o'tib ketdi! (eng xavfli holat)",
          RLIGHT,RGBColor(0x28,0x08,0x08),RGBColor(0x44,0x10,0x10)),
@@ -689,10 +694,10 @@ def s11(prs):
        Inches(.65),Inches(5.1),Inches(12.0),Inches(.45),
        size=13,bold=True,color=BLIGHT)
     impacts=[
-        ("376 fraud bloklandi","Bank = pul yutdi"),
-        ("38 fraud o'tdi","Minimal yo'qotish"),
-        ("47 yolg'on alarm","Foydalanuvchi noqulayligi"),
-        ("0.987 ROC-AUC","Sanoat standartiga mos"),
+        ("200 fraud bloklandi","Bank = pul yutdi"),
+        ("300 fraud o'tdi","Dataset shovqini tufayli"),
+        ("357 yolg'on alarm","Foydalanuvchi noqulayligi"),
+        ("0.857 ROC-AUC","Sanoat standarti doirasida"),
     ]
     for i,(v,l) in enumerate(impacts):
         x=Inches(.65)+i*Inches(3.0)
@@ -870,17 +875,17 @@ def s15(prs):
     tx(s,"SafeNet — Xulosa",
        Inches(1.5),Inches(1.1),Inches(10.3),Inches(.88),
        size=40,bold=True,color=BLIGHT,align=PP_ALIGN.CENTER)
-    tx(s,"Random Forest asosida qurilgan real-vaqt anti-fraud tizimi\n"
-        "firibgarlikni yuqori aniqlikda aniqlaydi va har qarorni tushuntiradi",
+    tx(s,"DeepFraudNet (256→128→64 MLP) asosida qurilgan real-vaqt anti-fraud tizimi\n"
+        "firibgarlikni ROC-AUC 0.857 aniqlikda aniqlaydi va har qarorni tushuntiradi",
        Inches(1.5),Inches(2.25),Inches(10.3),Inches(.9),
        size=14,color=GRAY,align=PP_ALIGN.CENTER)
 
     highlights=[
-        ("🎯","97.2%\nAccuracy",GLIGHT),
+        ("🧠","0.857\nROC-AUC",GLIGHT),
         ("⚡","<100ms\nTezlik",BLIGHT),
         ("📖","Tushun-\ntiriladi",PURPLE),
-        ("🗄️","15,000\nDataset",YELLOW),
-        ("🌲","250\nDaraxt",GLIGHT),
+        ("🗄️","50,000\nDataset",YELLOW),
+        ("⚡","25 ta\nBelgi",GLIGHT),
     ]
     for i,(ico,label,col) in enumerate(highlights):
         x=Inches(.55)+i*Inches(2.5)
@@ -893,11 +898,11 @@ def s15(prs):
 
     # criteria checklist
     criteria=[
-        ("✅","Model sifati","RandomForest pipeline, balanced class weight, stratified split"),
-        ("✅","Ma'lumotlar bilan ishlash","15K dataset, tozalash, behavior feature engineering"),
-        ("✅","Model aniqligi","97.2% Accuracy · 0.987 ROC-AUC · 91.2% F1-Score"),
-        ("✅","Ishlaydigan demo","Streamlit interaktiv panel · REST API · GitHub'da ochiq"),
-        ("✅","Algoritmni tushuntirish","Risk ball tizimi · sabab ro'yxati · confusion matrix"),
+        ("✅","Model sifati","DeepFraudNet MLP · sqrt class weighting · stratified split · He init"),
+        ("✅","Ma'lumotlar bilan ishlash","50K dataset · Z-score norm · OHE · binning · 7 interaction feature"),
+        ("✅","Model aniqligi","ROC-AUC 0.857 · Precision 52.4% · Recall 40.0% · F1 45.4%"),
+        ("✅","Ishlaydigan demo","Streamlit interaktiv panel · 4 ta stsenariy · GitHub'da ochiq"),
+        ("✅","Algoritmni tushuntirish","Forward/backward pass · Adam optim · Risk signal engine"),
     ]
     for i,(mark,crit,detail) in enumerate(criteria):
         y=Inches(5.02)+i*Inches(.43)
