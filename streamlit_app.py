@@ -1,7 +1,7 @@
 """
 SafeNet — Anti-Fraud AI  (v3  Deep Learning)
 Model: 3-hidden-layer MLP  128→64→32  Adam optimizer + weighted BCE
-Streamlit Cloud: numpy/pandas only, no sklearn.
+Streamlit Cloud: numpy/pandas only.
 """
 from __future__ import annotations
 
