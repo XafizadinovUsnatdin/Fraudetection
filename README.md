@@ -83,6 +83,8 @@ Run the backend:
 ```bash
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
+MOdelni sinab ko'rish qo'shimcha admin panel korinishida:   
+<img width="1950" height="942" alt="image" src="https://github.com/user-attachments/assets/8e3f93d6-8b9e-4638-9808-3207c2e5aee6" />
 
 
 
@@ -110,3 +112,16 @@ http://localhost:8000/transactions
 ```bash
 python scripts\simulate_transactions.py --api-url http://localhost:8001
 ```
+
+team experience 
+president tech award with Tahlilchi AI project tahlilchi-ai.uz
+<img width="1280" height="778" alt="image" src="https://github.com/user-attachments/assets/1ccb5a9e-94d3-4586-b9cb-144e58056b5b" />
+
+AIFU hackaton Tahlilchi AI — "Eng innovatsion AI yechim" nominatsiyasi g‘olibi
+
+<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/ba01c902-0c4e-4532-9dad-c79e234e1239" />
+
+Kelakak muhandislar 2025 hackaton g'olibi
+<img width="640" height="640" alt="image" src="https://github.com/user-attachments/assets/29d5dab8-e9de-4b39-8f53-bda4128cad11" />
+
+
