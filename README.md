@@ -3,6 +3,14 @@
 
 ## Streamlit Fraud Detection App
 
+
+
+
+
+
+
+<img width="1863" height="756" alt="image" src="https://github.com/user-attachments/assets/535fbbc0-d97b-4a3e-b441-4594d93404da" />
+
 Asosiy demo Streamlit orqali ishlaydi:
 
 ```bash
