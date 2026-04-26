@@ -1,5 +1,6 @@
 # SafeNet AI Anti-Fraud Demo
 #first version https://safenetfraud.streamlit.app/
+random forest model
 
 ## Streamlit Fraud Detection App
 
