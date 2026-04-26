@@ -11,6 +11,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score,
+    average_precision_score,
     classification_report,
     f1_score,
     precision_score,
@@ -292,9 +293,31 @@ def build_model_pipeline() -> Pipeline:
     )
 
 
-def evaluate_model(model: Pipeline, x_test: pd.DataFrame, y_test: pd.Series) -> dict[str, float]:
+def find_best_threshold(y_true: pd.Series, probability: np.ndarray, min_precision: float = 0.20) -> float:
+    candidates = np.unique(np.r_[np.linspace(0.02, 0.98, 97), np.quantile(probability, np.linspace(0.02, 0.98, 97))])
+    best_threshold = 0.50
+    best_f1 = -1.0
+    fallback_threshold = 0.50
+    fallback_f1 = -1.0
+
+    for threshold in candidates:
+        predictions = (probability >= threshold).astype(int)
+        precision = precision_score(y_true, predictions, zero_division=0)
+        recall = recall_score(y_true, predictions, zero_division=0)
+        f1 = f1_score(y_true, predictions, zero_division=0)
+        if f1 > fallback_f1 or (np.isclose(f1, fallback_f1) and recall > recall_score(y_true, (probability >= fallback_threshold).astype(int), zero_division=0)):
+            fallback_f1 = f1
+            fallback_threshold = float(threshold)
+        if precision >= min_precision and f1 > best_f1:
+            best_f1 = f1
+            best_threshold = float(threshold)
+
+    return float(np.clip(best_threshold if best_f1 >= 0 else fallback_threshold, 0.02, 0.98))
+
+
+def evaluate_model(model: Pipeline, x_test: pd.DataFrame, y_test: pd.Series, threshold: float) -> dict[str, float]:
     fraud_probability = model.predict_proba(x_test)[:, 1]
-    predictions = (fraud_probability >= 0.50).astype(int)
+    predictions = (fraud_probability >= threshold).astype(int)
 
     metrics = {
         "accuracy": accuracy_score(y_test, predictions),
@@ -302,6 +325,8 @@ def evaluate_model(model: Pipeline, x_test: pd.DataFrame, y_test: pd.Series) -> 
         "recall": recall_score(y_test, predictions, zero_division=0),
         "f1_score": f1_score(y_test, predictions, zero_division=0),
         "roc_auc": roc_auc_score(y_test, fraud_probability),
+        "average_precision": average_precision_score(y_test, fraud_probability),
+        "review_threshold": threshold,
     }
 
     print("\nEvaluation metrics")
@@ -315,7 +340,7 @@ def evaluate_model(model: Pipeline, x_test: pd.DataFrame, y_test: pd.Series) -> 
     return metrics
 
 
-def save_model_artifact(model: Pipeline, source_df: pd.DataFrame, metrics: dict[str, float]) -> None:
+def save_model_artifact(model: Pipeline, source_df: pd.DataFrame, metrics: dict[str, float], review_threshold: float) -> None:
     clean_df = clean_raw_transactions(source_df)
     artifact = {
         "model": model,
@@ -330,8 +355,8 @@ def save_model_artifact(model: Pipeline, source_df: pd.DataFrame, metrics: dict[
             "fraud_rate": float(clean_df["isFraud"].mean()),
         },
         "thresholds": {
-            "review": 0.50,
-            "block": 0.80,
+            "review": float(review_threshold),
+            "block": float(min(0.98, max(0.80, review_threshold * 1.6))),
         },
         "metrics": metrics,
         "random_state": RANDOM_STATE,
@@ -349,19 +374,35 @@ def train() -> Pipeline:
     if y.nunique() < 2:
         raise ValueError("Training data must contain both fraud and non-fraud examples.")
 
-    x_train, x_test, y_train, y_test = train_test_split(
+    x_train_full, x_test, y_train_full, y_test = train_test_split(
         x,
         y,
         test_size=0.25,
         random_state=RANDOM_STATE,
         stratify=y,
     )
+    x_train, x_val, y_train, y_val = train_test_split(
+        x_train_full,
+        y_train_full,
+        test_size=0.20,
+        random_state=RANDOM_STATE + 1,
+        stratify=y_train_full,
+    )
 
     model = build_model_pipeline()
     model.fit(x_train, y_train)
 
-    metrics = evaluate_model(model, x_test, y_test)
-    save_model_artifact(model, df, metrics)
+    validation_probability = model.predict_proba(x_val)[:, 1]
+    review_threshold = find_best_threshold(y_val, validation_probability, min_precision=0.20)
+    metrics = evaluate_model(model, x_test, y_test, review_threshold)
+    metrics["validation_roc_auc"] = roc_auc_score(y_val, validation_probability)
+    metrics["validation_average_precision"] = average_precision_score(y_val, validation_probability)
+    metrics["validation_f1_score"] = f1_score(
+        y_val,
+        (validation_probability >= review_threshold).astype(int),
+        zero_division=0,
+    )
+    save_model_artifact(model, df, metrics, review_threshold)
 
     print("\nTraining summary")
     print("----------------")

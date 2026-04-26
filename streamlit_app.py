@@ -22,6 +22,7 @@ warnings.filterwarnings("ignore")
 ROOT       = Path(__file__).parent
 DATA_PATH  = ROOT / "data" / "synthetic_transactions.csv"
 MODEL_PATH = ROOT / "ml"   / "fraud_model_v2.pkl"
+MODEL_VERSION = 4
 
 UZS_SUFFIX = " so'm"
 
@@ -47,6 +48,8 @@ RISKY_LOC = {"foreign_ip", "unknown"}
 INTERACT_COLS = [
     "risky_device", "risky_location", "night_flag",
     "dev_x_night", "dev_x_loc", "loc_x_night", "vpn_x_blacklist",
+    "amount_x_night", "amount_x_risky_device", "freq_x_vpn",
+    "complaints_x_blacklist", "geo_x_location_mismatch", "limit_x_high_value",
 ]
 
 def add_interactions(df: pd.DataFrame) -> pd.DataFrame:
@@ -58,9 +61,16 @@ def add_interactions(df: pd.DataFrame) -> pd.DataFrame:
     d["dev_x_loc"]       = d["risky_device"]   * d["risky_location"]
     d["loc_x_night"]     = d["risky_location"] * d["night_flag"]
     d["vpn_x_blacklist"] = d["VPN or Proxy Usage"] * d["Recipient Blacklist Status"]
+    d["amount_x_night"] = d["Normalized Transaction Amount"].astype(float) * d["night_flag"]
+    d["amount_x_risky_device"] = d["Normalized Transaction Amount"].astype(float) * d["risky_device"]
+    d["freq_x_vpn"] = d["Transaction Frequency"].astype(float) * d["VPN or Proxy Usage"]
+    d["complaints_x_blacklist"] = d["Fraud Complaints Count"].astype(float) * d["Recipient Blacklist Status"]
+    d["geo_x_location_mismatch"] = d["Geo-Location Flags"] * d["Location-Inconsistent Transactions"]
+    d["limit_x_high_value"] = d["User Daily Limit Exceeded"] * d["Recent High-Value Transaction Flags"]
     return d
 
 EXT_FEATURES = FEATURES + INTERACT_COLS
+MODEL_NUMERIC_FEATURES = NUMERICAL + BINARY + INTERACT_COLS
 
 st.set_page_config(
     page_title="SafeNet Fraud Detection",
@@ -177,13 +187,22 @@ def classification_report_np(y_true, y_pred):
                             "support": total}
     return rows
 
-def optimal_threshold(y_true, score):
-    best_f1, best_t = -1., 0.5
-    for t in np.linspace(0.05, 0.95, 91):
-        pred = (score>=t).astype(int)
-        _,_,f1 = precision_recall_f1(y_true, pred)
-        if f1 > best_f1: best_f1=f1; best_t=float(t)
-    return best_t
+def optimal_threshold(y_true, score, min_precision=0.20):
+    yt = np.asarray(y_true).astype(int)
+    sc = np.asarray(score).astype(float)
+    candidates = np.unique(np.r_[np.linspace(0.02, 0.98, 97), np.quantile(sc, np.linspace(0.02, 0.98, 97))])
+    best = {"f1": -1.0, "precision": 0.0, "recall": 0.0, "threshold": 0.5}
+    fallback = best.copy()
+    for t in candidates:
+        pred = (sc >= t).astype(int)
+        p, r, f1 = precision_recall_f1(yt, pred)
+        item = {"f1": f1, "precision": p, "recall": r, "threshold": float(t)}
+        if f1 > fallback["f1"] or (np.isclose(f1, fallback["f1"]) and r > fallback["recall"]):
+            fallback = item
+        if p >= min_precision and (f1 > best["f1"] or (np.isclose(f1, best["f1"]) and r > best["recall"])):
+            best = item
+    chosen = best if best["f1"] >= 0 else fallback
+    return float(np.clip(chosen["threshold"], 0.02, 0.98))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DEEP FRAUD NET  — 3-hidden-layer MLP  (replaces logistic model)
@@ -198,23 +217,46 @@ class DeepFraudNet:
     No sklearn dependency — pure numpy.
     """
 
-    def __init__(self, hidden=(128, 64, 32), epochs=80, lr=0.001, batch=256, l2=5e-5):
+    def __init__(
+        self,
+        hidden=(128, 64, 32),
+        epochs=80,
+        lr=0.001,
+        batch=256,
+        l2=5e-5,
+        seed=42,
+        class_weight_cap=6.0,
+        patience=14,
+        gradient_clip=5.0,
+    ):
         self.hidden = tuple(hidden)
         self.epochs = epochs
         self.lr     = lr
         self.batch  = batch
         self.l2     = l2
-        self.numeric_mean:  pd.Series | None       = None
-        self.numeric_std:   pd.Series | None       = None
-        self.categories:    dict[str, list]        = {}
-        self.bin_edges:     dict[str, np.ndarray]  = {}
-        self.feature_names: list[str]              = []
-        self.params:        dict[str, np.ndarray]  = {}
-        self.history:       list[float]            = []
+        self.seed   = seed
+        self.class_weight_cap = class_weight_cap
+        self.patience = patience
+        self.gradient_clip = gradient_clip
+        self.numeric_cols:   list[str]             = []
+        self.numeric_mean:   pd.Series | None      = None
+        self.numeric_std:    pd.Series | None      = None
+        self.categories:     dict[str, list]       = {}
+        self.bin_edges:      dict[str, np.ndarray] = {}
+        self.feature_names:  list[str]             = []
+        self.params:         dict[str, np.ndarray] = {}
+        self.history:        list[float]           = []
+        self.val_history:    list[float]           = []
+        self.val_f1_history: list[float]           = []
+        self.best_epoch:     int | None            = None
+        self.class_positive_weight = 1.0
+        self.calibration_a = 1.0
+        self.calibration_b = 0.0
 
     # ── schema ────────────────────────────────────────────────────────────────
     def _fit_schema(self, df: pd.DataFrame) -> None:
-        num_cols = NUMERICAL + BINARY
+        num_cols = [c for c in MODEL_NUMERIC_FEATURES if c in df.columns]
+        self.numeric_cols = num_cols
         self.numeric_mean = df[num_cols].astype(float).mean()
         self.numeric_std  = df[num_cols].astype(float).std().replace(0,1).fillna(1)
         self.categories   = {c: sorted(df[c].astype(str).fillna("unknown").unique())
@@ -231,7 +273,7 @@ class DeepFraudNet:
 
     def transform(self, df: pd.DataFrame) -> np.ndarray:
         if self.numeric_mean is None: raise RuntimeError("Not fitted")
-        num_cols = NUMERICAL + BINARY
+        num_cols = getattr(self, "numeric_cols", None) or list(self.numeric_mean.index)
         num = (df[num_cols].astype(float) - self.numeric_mean) / self.numeric_std
         arrs = [num.to_numpy(dtype=float)]
         for c, edges in self.bin_edges.items():
@@ -253,7 +295,7 @@ class DeepFraudNet:
     # ── weight init ───────────────────────────────────────────────────────────
     def _init_weights(self, n_in: int) -> None:
         dims = [n_in] + list(self.hidden) + [1]
-        rng  = np.random.default_rng(42)
+        rng  = np.random.default_rng(getattr(self, "seed", 42))
         for i in range(len(dims)-1):
             self.params[f"W{i+1}"] = rng.standard_normal((dims[i], dims[i+1])) * np.sqrt(2.0/dims[i])
             self.params[f"b{i+1}"] = np.zeros(dims[i+1])
@@ -270,9 +312,9 @@ class DeepFraudNet:
 
     # ── backward ─────────────────────────────────────────────────────────────
     def _backward(self, cache: dict, y: np.ndarray, sw: np.ndarray) -> dict:
-        n_hidden = len(self.hidden); L = n_hidden+1; n = len(y); grads = {}
+        n_hidden = len(self.hidden); L = n_hidden+1; grads = {}
         y_hat = cache[f"A{L}"]
-        dZ    = (y_hat - y) * sw / n                         # output delta
+        dZ    = (y_hat - y) * sw / max(float(sw.sum()), 1e-12)
         A_prev = cache[f"A{L-1}"]
         grads[f"W{L}"] = A_prev.T @ dZ.reshape(-1,1) + self.l2 * self.params[f"W{L}"]
         grads[f"b{L}"] = np.array([dZ.sum()])
@@ -285,45 +327,121 @@ class DeepFraudNet:
             dA = dZ2 @ self.params[f"W{i}"].T
         return grads
 
+    def _weighted_bce(self, y_hat: np.ndarray, y: np.ndarray, sw: np.ndarray) -> float:
+        e = 1e-9
+        loss = -(y*np.log(y_hat+e) + (1-y)*np.log(1-y_hat+e))
+        return float(np.sum(sw * loss) / max(float(sw.sum()), 1e-12))
+
+    def _clip_grads(self, grads: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+        limit = float(getattr(self, "gradient_clip", 0.0) or 0.0)
+        if limit <= 0:
+            return grads
+        norm = np.sqrt(sum(float(np.sum(g*g)) for g in grads.values()))
+        if norm > limit:
+            scale = limit / (norm + 1e-12)
+            grads = {k: v * scale for k, v in grads.items()}
+        return grads
+
+    def _predict_array_raw(self, X: np.ndarray) -> np.ndarray:
+        y_hat, _ = self._forward(X)
+        return np.clip(y_hat, 1e-6, 1 - 1e-6)
+
+    def _apply_calibration(self, prob: np.ndarray) -> np.ndarray:
+        a = float(getattr(self, "calibration_a", 1.0))
+        b = float(getattr(self, "calibration_b", 0.0))
+        prob = np.clip(prob, 1e-6, 1 - 1e-6)
+        logit = np.log(prob / (1 - prob))
+        return sigmoid(a * logit + b)
+
+    def fit_calibration(self, df: pd.DataFrame, y: pd.Series) -> None:
+        y_arr = y.to_numpy(dtype=float)
+        if len(np.unique(y_arr)) < 2:
+            self.calibration_a, self.calibration_b = 1.0, 0.0
+            return
+        raw = self._predict_array_raw(self.transform(df))
+        x = np.log(raw / (1 - raw))
+        a, b = 1.0, 0.0
+        lr = 0.03
+        for _ in range(250):
+            p = sigmoid(a * x + b)
+            err = p - y_arr
+            da = float(np.mean(err * x) + 0.01 * (a - 1.0))
+            db = float(np.mean(err) + 0.01 * b)
+            a -= lr * da
+            b -= lr * db
+            a = float(np.clip(a, 0.25, 4.0))
+            b = float(np.clip(b, -4.0, 4.0))
+        self.calibration_a, self.calibration_b = a, b
+
     # ── fit ───────────────────────────────────────────────────────────────────
-    def fit(self, df: pd.DataFrame, y: pd.Series, progress=None) -> "DeepFraudNet":
+    def fit(self, df: pd.DataFrame, y: pd.Series, val_df: pd.DataFrame | None = None,
+            val_y: pd.Series | None = None, progress=None) -> "DeepFraudNet":
         self._fit_schema(df)
         X = self.transform(df); y_arr = y.to_numpy(dtype=float); n, n_in = X.shape
+        X_val = self.transform(val_df) if val_df is not None and val_y is not None else None
+        y_val = val_y.to_numpy(dtype=float) if val_y is not None else None
         self._init_weights(n_in)
         n_pos = max(y_arr.sum(), 1); n_neg = max(n-n_pos, 1)
-        # sqrt-based class weighting capped at 5x (less extreme than n/(2*n_pos))
-        ratio = min(np.sqrt(n_neg / n_pos), 5.0)
+        ratio = min(np.sqrt(n_neg / n_pos), float(getattr(self, "class_weight_cap", 6.0)))
+        self.class_positive_weight = float(ratio)
         sw = np.where(y_arr==1, ratio, 1.0)
         m_adam = {k: np.zeros_like(v) for k,v in self.params.items()}
         v_adam = {k: np.zeros_like(v) for k,v in self.params.items()}
         beta1, beta2, eps_adam = 0.9, 0.999, 1e-8; t = 0
         indices = np.arange(n)
+        rng = np.random.default_rng(getattr(self, "seed", 42))
+        best_params = {k: v.copy() for k, v in self.params.items()}
+        best_score = -np.inf
+        no_improve = 0
+        patience = int(max(4, getattr(self, "patience", 14)))
         for epoch in range(self.epochs):
-            np.random.seed(epoch); np.random.shuffle(indices)
+            rng.shuffle(indices)
             epoch_loss = 0.0; nb = 0
             for start in range(0, n, self.batch):
                 bi = indices[start:start+self.batch]
                 Xb, yb, swb = X[bi], y_arr[bi], sw[bi]
                 y_hat, cache = self._forward(Xb)
-                e = 1e-9
-                epoch_loss += -float(np.mean(swb*(yb*np.log(y_hat+e)+(1-yb)*np.log(1-y_hat+e))))
+                epoch_loss += self._weighted_bce(y_hat, yb, swb)
                 nb += 1
-                grads = self._backward(cache, yb, swb)
+                grads = self._clip_grads(self._backward(cache, yb, swb))
                 t += 1
+                lr_now = self.lr * (0.5 ** min(no_improve // 6, 3))
                 for k in self.params:
                     m_adam[k] = beta1*m_adam[k] + (1-beta1)*grads[k]
                     v_adam[k] = beta2*v_adam[k] + (1-beta2)*grads[k]**2
                     mh = m_adam[k]/(1-beta1**t); vh = v_adam[k]/(1-beta2**t)
-                    self.params[k] -= self.lr * mh / (np.sqrt(vh)+eps_adam)
+                    self.params[k] -= lr_now * mh / (np.sqrt(vh)+eps_adam)
             self.history.append(epoch_loss/max(nb,1))
+            if X_val is not None and y_val is not None:
+                val_prob = self._predict_array_raw(X_val)
+                val_ap = average_precision_np(y_val.astype(int), val_prob)
+                val_thr = optimal_threshold(y_val.astype(int), val_prob, min_precision=0.25)
+                _, _, val_f1 = precision_recall_f1(y_val.astype(int), (val_prob >= val_thr).astype(int))
+                self.val_history.append(val_ap)
+                self.val_f1_history.append(val_f1)
+                if val_f1 > best_score + 1e-5:
+                    best_score = val_f1
+                    best_params = {k: v.copy() for k, v in self.params.items()}
+                    self.best_epoch = epoch + 1
+                    no_improve = 0
+                else:
+                    no_improve += 1
             if progress and (epoch+1) % max(self.epochs//10,1) == 0:
                 pct = int((epoch+1)/self.epochs*80)+10
-                progress.progress(min(pct,90), f"Epoch {epoch+1}/{self.epochs}  loss={self.history[-1]:.4f}")
+                msg = f"Epoch {epoch+1}/{self.epochs}  loss={self.history[-1]:.4f}"
+                if self.val_history:
+                    msg += f"  val_F1={self.val_f1_history[-1]:.4f}  val_AP={self.val_history[-1]:.4f}"
+                progress.progress(min(pct,90), msg)
+            if X_val is not None and no_improve >= patience:
+                break
+        if X_val is not None and val_df is not None and val_y is not None:
+            self.params = best_params
+            self.fit_calibration(val_df, val_y)
         return self
 
     def predict_proba(self, df: pd.DataFrame) -> np.ndarray:
-        y_hat, _ = self._forward(self.transform(df))
-        # cap at 0.995 so displayed score never rounds to 100%
+        y_hat = self._predict_array_raw(self.transform(df))
+        y_hat = self._apply_calibration(y_hat)
         y_hat = np.clip(y_hat, 0.005, 0.995)
         return np.column_stack([1-y_hat, y_hat])
 
@@ -338,16 +456,22 @@ class DeepFraudNet:
 # Artifact helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build_artifact(model: DeepFraudNet, train_df, test_df, source_df) -> dict:
+def build_artifact(model: DeepFraudNet, train_df, val_df, test_df, source_df) -> dict:
     feat = EXT_FEATURES if set(EXT_FEATURES).issubset(test_df.columns) else FEATURES
+    y_val = val_df[TARGET].to_numpy(dtype=int)
+    val_score = model.predict_proba(val_df[feat])[:, 1]
+    threshold = optimal_threshold(y_val, val_score, min_precision=0.25)
+    val_pred = (val_score >= threshold).astype(int)
+    vp, vr, vf1 = precision_recall_f1(y_val, val_pred)
+
     y_test = test_df[TARGET].to_numpy(dtype=int)
     score  = model.predict_proba(test_df[feat])[:, 1]
-    threshold = optimal_threshold(y_test, score)
     pred  = (score >= threshold).astype(int)
     p, r, f1 = precision_recall_f1(y_test, pred)
     fi = pd.DataFrame({"xususiyat": model.feature_names,
                        "muhimlik":  model.feature_importances_}).sort_values("muhimlik", ascending=False)
     return {
+        "model_version": MODEL_VERSION,
         "pipeline": model,
         "xususiyatlar": FEATURES,
         "chegara": threshold,
@@ -355,13 +479,17 @@ def build_artifact(model: DeepFraudNet, train_df, test_df, source_df) -> dict:
         "xususiyat_muhimlik": fi,
         "orgatish_sanasi": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "orgatish_soni": len(train_df),
+        "validatsiya_soni": len(val_df),
         "test_soni": len(test_df),
         "fraud_ulushi": float(source_df[TARGET].mean()),
-        "model_turi": "DeepFraudNet (256→128→64, Adam+Interactions)",
+        "model_turi": f"DeepFraudNet ({'→'.join(map(str, model.hidden))}, Adam+EarlyStop+Calibrated)",
         "korsatkichlar": {
-            "kv_roc_auc": roc_auc_np(y_test, score),
+            "kv_roc_auc": roc_auc_np(y_val, val_score),
             "kv_roc_auc_std": 0.0,
-            "kv_f1": f1, "kv_aniqlik": p, "kv_qamrov": r,
+            "kv_f1": vf1, "kv_aniqlik": vp, "kv_qamrov": vr,
+            "validatsiya_roc_auc": roc_auc_np(y_val, val_score),
+            "validatsiya_ort_aniqlik": average_precision_np(y_val, val_score),
+            "validatsiya_f1": vf1,
             "test_roc_auc": roc_auc_np(y_test, score),
             "test_ort_aniqlik": average_precision_np(y_test, score),
             "test_f1": f1, "chegara": threshold,
@@ -370,6 +498,14 @@ def build_artifact(model: DeepFraudNet, train_df, test_df, source_df) -> dict:
             "pr_egri":  pr_curve_np(y_test, score),
             "hisobot":  classification_report_np(y_test, pred),
             "loss_tarix": model.history,
+            "val_ap_tarix": getattr(model, "val_history", []),
+            "val_f1_tarix": getattr(model, "val_f1_history", []),
+            "best_epoch": getattr(model, "best_epoch", None),
+            "positive_class_weight": getattr(model, "class_positive_weight", 1.0),
+            "calibration": {
+                "a": float(getattr(model, "calibration_a", 1.0)),
+                "b": float(getattr(model, "calibration_b", 0.0)),
+            },
         },
     }
 
@@ -377,30 +513,35 @@ def save_artifact(artifact: dict) -> None:
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     with MODEL_PATH.open("wb") as f: pickle.dump(artifact, f)
 
-def train_deep_model(df: pd.DataFrame, sample_size=20000, epochs=80,
+def train_deep_model(df: pd.DataFrame, sample_size=50000, epochs=130,
                      hidden=(256,128,64), progress=None) -> dict:
     df_ext = add_interactions(df)
     work   = stratified_sample(df_ext, min(sample_size, len(df_ext)), seed=42)
     if progress: progress.progress(15, "Dataset va interaction features tayyorlandi...")
-    train_df, test_df = stratified_split(work, TARGET, 0.20, 42)
-    model = DeepFraudNet(hidden=hidden, epochs=epochs, batch=512, l2=1e-5)
-    if progress: progress.progress(20, "DeepFraudNet o'rgatilmoqda (256→128→64, Adam)...")
-    model.fit(train_df[EXT_FEATURES], train_df[TARGET], progress=progress)
+    train_full_df, test_df = stratified_split(work, TARGET, 0.20, 42)
+    train_df, val_df = stratified_split(train_full_df, TARGET, 0.20, 43)
+    model = DeepFraudNet(hidden=hidden, epochs=epochs, batch=512, l2=2e-5,
+                         class_weight_cap=6.0, patience=max(10, epochs//7))
+    if progress: progress.progress(20, "DeepFraudNet o'rgatilmoqda (validation + early stopping)...")
+    model.fit(train_df[EXT_FEATURES], train_df[TARGET],
+              val_df[EXT_FEATURES], val_df[TARGET], progress=progress)
     if progress: progress.progress(92, "Metrikalar hisoblanmoqda...")
-    artifact = build_artifact(model, train_df, test_df, df_ext)
+    artifact = build_artifact(model, train_df, val_df, test_df, df_ext)
     save_artifact(artifact)
     if progress: progress.progress(100, "Model tayyor!")
     return artifact
 
 def orgatish_va_saqlash(df, daraxt_soni=200, max_chuqurlik=None, min_barglar=None, progress=None):
     epochs = int(np.clip(daraxt_soni // 2, 60, 120))
-    return train_deep_model(df, sample_size=min(len(df), 30000), epochs=epochs, progress=progress)
+    return train_deep_model(df, sample_size=min(len(df), 50000), epochs=epochs, progress=progress)
 
 def tezkor_orgatish_va_saqlash(df, progress=None):
-    return train_deep_model(df, sample_size=15000, epochs=60, progress=progress)
+    return train_deep_model(df, sample_size=min(len(df), 50000), epochs=130, progress=progress)
 
 def artifactni_moslashtir(a):
-    return a if isinstance(a, dict) and "korsatkichlar" in a and "pipeline" in a else None
+    if not isinstance(a, dict) or "korsatkichlar" not in a or "pipeline" not in a:
+        return None
+    return a if int(a.get("model_version", 0)) >= MODEL_VERSION else None
 
 @st.cache_resource(show_spinner=False)
 def modelni_yukla() -> dict | None:
@@ -473,6 +614,26 @@ def risk_bar_md(name: str, score: float, desc: str) -> str:
     else:              emoji, color = "🔴", "yuqori"
     return f"{emoji} **{name}** `{bar}` **{pct}%** ({color})  \n&nbsp;&nbsp;&nbsp;↳ *{desc}*"
 
+def clamp_probability(prob: float) -> float:
+    """Keep model probability displayable without ever reaching 0% or 100%."""
+    return float(np.clip(float(prob), 0.005, 0.995))
+
+def fmt_score(prob: float) -> str:
+    """Format fraud probability — always between 0.5% and 99.5%."""
+    s = round(clamp_probability(prob) * 100, 1)
+    return f"{s:.1f}%"
+
+def confidence_info(prob: float, thr: float) -> tuple[str, str]:
+    """Return (label, hex_color) based on how far score is from thresholds."""
+    block_thr = max(thr * 1.6, 0.70)
+    near_review = abs(prob - thr) < 0.09
+    near_block  = abs(prob - block_thr) < 0.07
+    if near_review or near_block:
+        return "⚠️ Chegara yaqin — noaniq", "#f59e0b"
+    if prob < thr - 0.22 or prob > block_thr + 0.12:
+        return "🎯 Ishonch yuqori", "#22c55e"
+    return "🔵 O'rtacha ishonch", "#60a5fa"
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Transaction helpers
 # ══════════════════════════════════════════════════════════════════════════════
@@ -484,12 +645,107 @@ def tranzaksiyani_tekshir(artifact: dict, tx: dict) -> dict:
     row    = {f: 0 for f in EXT_FEATURES}; row.update(tx)
     row_df = add_interactions(pd.DataFrame([row]))
     feat   = EXT_FEATURES if set(EXT_FEATURES).issubset(row_df.columns) else FEATURES
-    prob   = float(artifact["pipeline"].predict_proba(row_df[feat])[0,1])
+    prob   = clamp_probability(artifact["pipeline"].predict_proba(row_df[feat])[0,1])
     thr    = artifact["chegara"]; block_thr = max(thr*1.6, 0.70)
     if   prob >= block_thr: risk, decision = "HIGH",   "BLOCK"
     elif prob >= thr:       risk, decision = "MEDIUM",  "REVIEW"
     else:                   risk, decision = "LOW",     "ALLOW"
     return {"ehtimol": prob, "xavf": risk, "qaror": decision}
+
+def manual_rule_probability(row: dict | pd.Series) -> float:
+    dev = str(row.get("device", "unknown")).lower()
+    loc = str(row.get("location", "unknown")).lower()
+    hour = int(row.get("transaction_hour", 12))
+    norm = float(row.get("Normalized Transaction Amount", 0.0))
+    freq = float(row.get("Transaction Frequency", 1))
+    complaints = float(row.get("Fraud Complaints Count", 0))
+
+    vpn       = int(row.get("VPN or Proxy Usage", 0))
+    blacklist = int(row.get("Recipient Blacklist Status", 0))
+    past_fr   = int(row.get("Past Fraudulent Behavior Flags", 0))
+    loc_bad   = int(row.get("Location-Inconsistent Transactions", 0))
+    geo_flag  = int(row.get("Geo-Location Flags", 0))
+    verified  = int(row.get("Recipient Verification Status", 1))
+    mismatch  = int(row.get("Merchant Category Mismatch", 0))
+    limit     = int(row.get("User Daily Limit Exceeded", 0))
+    high_val  = int(row.get("Recent High-Value Transaction Flags", 0))
+
+    score = -4.25
+    score += 2.40 * blacklist
+    score += 1.05 * vpn
+    score += 1.35 * past_fr
+    score += 0.85 * loc_bad
+    score += 0.75 * geo_flag
+    score += 0.55 * (1 - verified)
+    score += 0.55 * mismatch
+    score += 0.70 * limit
+    score += 0.65 * high_val
+    score += 0.95 if dev in RISKY_DEV else 0.0
+    score += 0.90 if loc in RISKY_LOC else 0.0
+    score += 0.45 if 0 <= hour <= 5 else 0.15 if 22 <= hour <= 23 else 0.0
+    score += 0.80 if norm >= 0.85 else 0.45 if norm >= 0.60 else 0.20 if norm >= 0.35 else 0.0
+    score += 0.25 if freq >= 10 else 0.0
+    score += min(0.90, complaints * 0.22)
+
+    score += 1.15 if blacklist and vpn else 0.0
+    score += 0.95 if blacklist and past_fr else 0.0
+    score += 0.65 if geo_flag and loc_bad else 0.0
+    score += 0.70 if limit and high_val else 0.0
+    score += 0.55 if dev in RISKY_DEV and loc in RISKY_LOC else 0.0
+
+    rule_prob = float(sigmoid(score))
+    if blacklist and vpn and past_fr:
+        rule_prob = max(rule_prob, 0.92)
+    elif blacklist and (vpn or past_fr):
+        rule_prob = max(rule_prob, 0.86)
+    elif past_fr and (vpn or loc_bad or geo_flag):
+        rule_prob = max(rule_prob, 0.76)
+    elif blacklist:
+        rule_prob = max(rule_prob, 0.68)
+    return clamp_probability(rule_prob)
+
+def combine_manual_probability(model_prob: float, rule_prob: float) -> float:
+    model_prob = clamp_probability(model_prob)
+    rule_prob = clamp_probability(rule_prob)
+    if rule_prob < 0.25:
+        combined = 0.85 * model_prob + 0.15 * rule_prob
+    elif rule_prob < 0.55:
+        combined = max(model_prob, 0.55 * model_prob + 0.45 * rule_prob)
+    else:
+        combined = 1.0 - (1.0 - model_prob) * (1.0 - rule_prob)
+    return clamp_probability(combined)
+
+def qolda_tranzaksiyani_tekshir(artifact: dict, tx: dict) -> dict:
+    amount = float(tx.get("amount", 1_500_000))
+    a_min  = artifact["miqdor_stat"]["min"]; a_max = artifact["miqdor_stat"]["max"]
+    tx["Normalized Transaction Amount"] = float(np.clip((amount-a_min)/max(a_max-a_min,1e-9),0,1))
+
+    row = {feature: 0 for feature in FEATURES}
+    row.update(tx)
+    row_df = pd.DataFrame([row])
+
+    pipeline = artifact["pipeline"]
+    numeric_cols = list(getattr(pipeline, "numeric_cols", []))
+    extra_cols = [col for col in numeric_cols if col not in row_df.columns]
+    for col in extra_cols:
+        row_df[col] = 0.0
+
+    score_df = row_df if extra_cols else row_df[FEATURES]
+    model_prob = clamp_probability(pipeline.predict_proba(score_df)[0, 1])
+    rule_prob = manual_rule_probability(row)
+    prob = combine_manual_probability(model_prob, rule_prob)
+
+    thr = artifact["chegara"]; block_thr = min(0.85, max(thr + 0.25, 0.70))
+    if   prob >= block_thr: risk, decision = "HIGH",   "BLOCK"
+    elif prob >= thr:       risk, decision = "MEDIUM",  "REVIEW"
+    else:                   risk, decision = "LOW",     "ALLOW"
+    return {
+        "ehtimol": prob,
+        "model_ehtimol": model_prob,
+        "qoida_ehtimol": rule_prob,
+        "xavf": risk,
+        "qaror": decision,
+    }
 
 def simulyatsiya_namunasini_tanla(df, soni, ssenariy, seed):
     rng = np.random.default_rng(seed)
@@ -583,7 +839,7 @@ def render_explorer(df):
 
 def render_training(df):
     st.header("Model o'rgatish")
-    st.info("**DeepFraudNet** — 3 qatlamli neyron tarmoq: 128→64→32→1, Adam optimizer, class-weighted BCE loss.")
+    st.info("**DeepFraudNet v4** — interaction features, validation split, early stopping, calibrated probability va class-weighted BCE loss.")
     with st.expander("Model arxitekturasi"):
         st.markdown("""
 | Qatlam | Neyronlar | Aktivatsiya | Parametrlar |
@@ -595,21 +851,23 @@ def render_training(df):
 | Output | **1**     | Sigmoid     | 65          |
 | **Jami** | —      | —           | **~92,400** |
 
-**Optimizer:** Adam (lr=0.001, β₁=0.9, β₂=0.999)
-**Loss:** sqrt-weighted Binary Cross-Entropy (fraud ratio cap: 5×)
-**Regularization:** L2 weight decay (λ=1e-5)
+**Optimizer:** Adam + LR decay + gradient clipping
+**Loss:** sqrt-weighted Binary Cross-Entropy (fraud ratio cap: 6×)
+**Regularization:** L2 weight decay (λ=2e-5) + early stopping
 **Init:** He initialization (√2/fan_in)
-**Extra features:** 7 ta interaction belgisi (device×location, device×night, vpn×blacklist...)
+**Threshold:** validation F1 bo'yicha tanlanadi, test faqat yakuniy baholash uchun ishlatiladi
+**Calibration:** validation split orqali probability calibration
+**Extra features:** 13 ta interaction belgisi (device×location, amount×night, geo×location, limit×high-value...)
         """)
     c1,c2,c3 = st.columns(3)
-    with c1: sample_size = st.slider("Training sample", 5000, min(40000,len(df)), 14000, 1000)
-    with c2: epochs      = st.slider("Epochs",         40, 150, 80, 10)
-    with c3: hidden_size = st.selectbox("Arxitektura", ["128→64→32 (standart)","256→128→64 (katta)","64→32→16 (tez)"])
-    hidden_map = {"128→64→32 (standart)":(128,64,32),"256→128→64 (katta)":(256,128,64),"64→32→16 (tez)":(64,32,16)}
+    with c1: sample_size = st.slider("Training sample", 5000, min(50000,len(df)), min(50000, len(df)), 1000)
+    with c2: epochs      = st.slider("Epochs",         60, 180, 130, 10)
+    with c3: hidden_size = st.selectbox("Arxitektura", ["256→128→64 (balanced)","128→64→32 (tez)","384→192→96 (katta)"])
+    hidden_map = {"256→128→64 (balanced)":(256,128,64),"128→64→32 (tez)":(128,64,32),"384→192→96 (katta)":(384,192,96)}
     art = modelni_yukla()
     if art:
         m=art["korsatkichlar"]
-        st.success(f"Faol model: {art.get('model_turi','DeepFraudNet')} | ROC-AUC {m['test_roc_auc']:.4f} | F1 {m['test_f1']:.4f} | Threshold {m['chegara']:.2f}")
+        st.success(f"Faol model: {art.get('model_turi','DeepFraudNet')} | ROC-AUC {m['test_roc_auc']:.4f} | F1 {m['test_f1']:.4f} | Threshold {m['chegara']:.2f} | Best epoch {m.get('best_epoch','—')}")
     if st.button("Modelni qayta o'rgat", type="primary"):
         bar=st.progress(0,"Boshlanmoqda...")
         art=train_deep_model(df,sample_size=sample_size,epochs=epochs,hidden=hidden_map[hidden_size],progress=bar)
@@ -619,8 +877,18 @@ def render_training(df):
         c1.metric("ROC-AUC",f"{m['test_roc_auc']:.4f}"); c2.metric("Avg Precision",f"{m['test_ort_aniqlik']:.4f}")
         c3.metric("F1",f"{m['test_f1']:.4f}"); c4.metric("Threshold",f"{m['chegara']:.2f}")
         if m.get("loss_tarix"):
-            fig=go.Figure(go.Scatter(y=m["loss_tarix"],mode="lines",line=dict(color="#3b82f6")))
-            fig.update_layout(title="O'qitish davomida loss (BCE)",xaxis_title="Epoch",yaxis_title="Loss")
+            fig=go.Figure()
+            fig.add_trace(go.Scatter(y=m["loss_tarix"],mode="lines",name="train loss",line=dict(color="#3b82f6")))
+            if m.get("val_f1_tarix"):
+                fig.add_trace(go.Scatter(y=m["val_f1_tarix"],mode="lines",name="validation F1",line=dict(color="#f59e0b"), yaxis="y2"))
+            if m.get("val_ap_tarix"):
+                fig.add_trace(go.Scatter(y=m["val_ap_tarix"],mode="lines",name="validation AP",line=dict(color="#22c55e"), yaxis="y2"))
+            fig.update_layout(
+                title="O'qitish monitoringi",
+                xaxis_title="Epoch",
+                yaxis_title="Train loss",
+                yaxis2=dict(title="Validation AP", overlaying="y", side="right", range=[0, 1]),
+            )
             st.plotly_chart(fig, use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -703,18 +971,21 @@ SCENARIOS = {
 def render_transaction_lifecycle(art: dict, df: pd.DataFrame) -> None:
     st.subheader("1. Bank tranzaksiya qayta ishlash simulyatsiyasi")
     st.markdown("""
-Har bir to'lov **real bank tizimidagi kabi** 6 ta bosqichdan o'tadi va SafeNet har bir tranzaksiyani
-**5 ta xavf signali** bo'yicha tahlil qilib, millisekundlar ichida qaror chiqaradi.
+Har bir to'lov **real bank tizimidagi kabi** 6 ta bosqichdan o'tadi. SafeNet **5 ta xavf signali**
+bo'yicha tahlil qilib, millisekundlar ichida qaror chiqaradi.
+> ℹ️ **Eslatma:** Model hech qachon 100% yoki 0% ehtimollik aytmaydi — bu statistik noaniqlik prinsipi.
     """)
 
     c1, c2, c3, c4 = st.columns([1, 1.5, 1, 1])
-    with c1: count    = st.slider("Tranzaksiyalar soni", 3, 25, 8, 1, key="lc_n")
+    with c1: count    = st.slider("Tranzaksiyalar soni", 3, 30, 10, 1, key="lc_n")
     with c2: scenario = st.selectbox("Stsenariy", list(SCENARIOS.keys()), key="lc_sc")
-    with c3: pause    = st.slider("Tezlik (sek)", 0.2, 3.0, 0.8, 0.1, key="lc_p")
+    with c3: pause    = st.slider("Tezlik (sek)", 0.1, 3.0, 0.7, 0.1, key="lc_p")
     with c4: seed     = st.number_input("Seed", 1, 999999, 2026, key="lc_seed")
 
     sc = SCENARIOS[scenario]
-    st.caption(f"📋 {sc['desc']}")
+    thr       = art["chegara"]
+    block_thr = max(thr * 1.6, 0.70)
+    st.caption(f"📋 {sc['desc']}   |   🎯 Review chegara: **{thr:.2f}**   |   🚫 Block chegara: **{block_thr:.2f}**")
 
     if not st.button("▶ Simulyatsiyani boshlash", type="primary", key="lc_btn"):
         st.info("Tugmani bosing — har bir tranzaksiya uchun bank receipt, xavf tahlili va ML qarori ko'rsatiladi.")
@@ -730,46 +1001,75 @@ Har bir to'lov **real bank tizimidagi kabi** 6 ta bosqichdan o'tadi va SafeNet h
     base_time = pd.Timestamp.now()
 
     progress_bar = st.progress(0, "Tayyor...")
+    stats_ph     = st.empty()
     tx_card_ph   = st.empty()
-    log_ph       = st.empty()
     chart_ph     = st.empty()
+    log_ph       = st.empty()
 
     ledger: list[dict] = []
     probs_over_time: list[float] = []
-    y_true_all: list[int] = []; y_pred_all: list[int] = []
+    y_true_all:  list[int] = []
+    y_pred_all:  list[int] = []
+    outcome_all: list[str] = []   # TP / TN / FP / FN
+    counts = {"ALLOW": 0, "REVIEW": 0, "BLOCK": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0}
 
     for idx, (_, row) in enumerate(stream.iterrows(), start=1):
         m_name, m_icon, m_cat, m_net = MERCHANTS[int(rng.integers(0, len(MERCHANTS)))]
         channel    = CHANNELS[int(rng.integers(0, len(CHANNELS)))]
         tx_id      = f"UZ{rng.integers(100000,999999)}"
-        event_time = base_time + pd.Timedelta(seconds=idx * int(rng.integers(3,12)))
+        event_time = base_time + pd.Timedelta(seconds=idx * int(rng.integers(3, 12)))
 
-        result  = tranzaksiyani_tekshir(art, {c: row[c] for c in FEATURES})
-        prob    = float(result["ehtimol"])
-        decision= result["qaror"]
-        actual  = int(row[TARGET])
-        signals = compute_risk_signals(row)
+        result   = tranzaksiyani_tekshir(art, {c: row[c] for c in FEATURES})
+        prob     = float(result["ehtimol"])          # already clipped to [0.005, 0.995]
+        decision = result["qaror"]
+        actual   = int(row[TARGET])
+        signals  = compute_risk_signals(row)
+
+        flagged  = decision in ("REVIEW", "BLOCK")
+        if   actual == 1 and flagged:     outcome = "TP"; counts["TP"] += 1
+        elif actual == 0 and not flagged: outcome = "TN"; counts["TN"] += 1
+        elif actual == 0 and flagged:     outcome = "FP"; counts["FP"] += 1
+        else:                             outcome = "FN"; counts["FN"] += 1
+
+        counts[decision] += 1
         probs_over_time.append(prob)
-        y_true_all.append(actual); y_pred_all.append(int(decision in ("REVIEW","BLOCK")))
+        y_true_all.append(actual)
+        y_pred_all.append(int(flagged))
+        outcome_all.append(outcome)
+
+        conf_label, conf_color = confidence_info(prob, thr)
+
+        # ── Live stats bar ─────────────────────────────────────────────────
+        with stats_ph.container():
+            sa, sr, sb, stp, stn, sfp, sfn = st.columns(7)
+            sa.metric("✅ Ruxsat",     counts["ALLOW"])
+            sr.metric("⚠️ Tekshiruv", counts["REVIEW"])
+            sb.metric("🚫 Bloklandi", counts["BLOCK"])
+            stp.metric("TP ✓",  counts["TP"],  help="To'g'ri bloklangan fraud")
+            stn.metric("TN ✓",  counts["TN"],  help="To'g'ri o'tkazilgan normal")
+            sfp.metric("FP ✗",  counts["FP"],  help="Noto'g'ri bloklangan normal")
+            sfn.metric("FN ✗",  counts["FN"],  help="O'tib ketgan fraud")
 
         # ── Pipeline stages ────────────────────────────────────────────────
         stage_ms = [
-            ("1️⃣ To'lov so'rovi qabul qilindi",       "Kanal va format tekshirildi",        int(rng.integers(12,35))),
-            ("2️⃣ Karta/hisob validatsiyasi",           f"Karta tarmog'i: {m_net} ✓",          int(rng.integers(18,55))),
-            ("3️⃣ Qurilma va lokatsiya tekshirildi",    f"{row['device']} | {row['location']}", int(rng.integers(22,70))),
-            ("4️⃣ Xulq-atvor tahlili",                  "Foydalanuvchi profili solishtirildi",  int(rng.integers(30,80))),
-            ("5️⃣ SafeNet ML modeli (DeepFraudNet)",    f"P(fraud) = {prob*100:.1f}%",          int(rng.integers(28,65))),
-            ("6️⃣ Yakuniy qaror va yozuv",              decision_label(decision),               int(rng.integers(10,30))),
+            ("1️⃣ To'lov so'rovi qabul qilindi", "Kanal va format tekshirildi",                 int(rng.integers(12, 35))),
+            ("2️⃣ Karta/hisob validatsiyasi",     f"Karta tarmog'i: {m_net} ✓",                  int(rng.integers(18, 55))),
+            ("3️⃣ Qurilma va lokatsiya",          f"{row['device']} | {row['location']}",        int(rng.integers(22, 70))),
+            ("4️⃣ Xulq-atvor tahlili",            "Foydalanuvchi profili solishtirildi",         int(rng.integers(30, 80))),
+            ("5️⃣ DeepFraudNet (256→128→64)",     f"P(fraud) = {fmt_score(prob)}",               int(rng.integers(28, 65))),
+            ("6️⃣ Qaror va yozuv",                f"{decision_label(decision)} | {conf_label}",  int(rng.integers(10, 30))),
         ]
         total_ms = sum(s[2] for s in stage_ms)
 
-        # ── Display transaction card ────────────────────────────────────────
+        # ── Transaction card ───────────────────────────────────────────────
         with tx_card_ph.container():
-            # Header
-            dec_colors = {"ALLOW":"🟢","REVIEW":"🟡","BLOCK":"🔴"}
-            st.markdown(f"### {m_icon} {m_name} &nbsp;&nbsp; `{tx_id}` &nbsp;&nbsp; {dec_colors[decision]} **{decision_label(decision)}**")
+            dec_icons = {"ALLOW": "🟢", "REVIEW": "🟡", "BLOCK": "🔴"}
+            out_icons = {"TP": "✅ TP", "TN": "✅ TN", "FP": "⚠️ FP", "FN": "❌ FN"}
+            st.markdown(
+                f"### {m_icon} {m_name} &nbsp; `{tx_id}` &nbsp; "
+                f"{dec_icons[decision]} **{decision_label(decision)}** &nbsp; `{out_icons[outcome]}`"
+            )
             st.divider()
-
             col_receipt, col_signals, col_decision = st.columns([1.1, 1.4, 1.0])
 
             with col_receipt:
@@ -793,93 +1093,151 @@ Har bir to'lov **real bank tizimidagi kabi** 6 ta bosqichdan o'tadi va SafeNet h
                 for sig_name, sig_score, sig_desc in signals:
                     st.markdown(risk_bar_md(sig_name, sig_score, sig_desc), unsafe_allow_html=True)
                 st.markdown("---")
-                overall = prob
-                st.markdown(f"**Umumiy fraud ehtimoli: `{overall*100:.1f}%`**")
+                top_risks = sorted(signals, key=lambda x: x[1], reverse=True)[:2]
+                reasons = " · ".join(f"{n} ({fmt_score(s)})" for n, s, _ in top_risks)
+                st.markdown(f"**Asosiy sabab:** {reasons}")
 
             with col_decision:
                 st.markdown("**⚖️ ML Qarori**")
-                gauge_color = {"LOW":"#22c55e","MEDIUM":"#f59e0b","HIGH":"#ef4444"}[result["xavf"]]
+                gauge_color = {"LOW": "#22c55e", "MEDIUM": "#f59e0b", "HIGH": "#ef4444"}[result["xavf"]]
+                display_val = round(clamp_probability(prob) * 100, 1)
                 fig = go.Figure(go.Indicator(
                     mode="gauge+number",
-                    value=round(prob*100,1),
-                    number={"suffix":"%","font":{"size":28}},
-                    title={"text":"Fraud Score"},
-                    gauge={"axis":{"range":[0,100]},
-                           "bar":{"color":gauge_color},
-                           "steps":[{"range":[0,50],"color":"#dcfce7"},
-                                    {"range":[50,80],"color":"#fef9c3"},
-                                    {"range":[80,100],"color":"#fee2e2"}],
-                           "threshold":{"line":{"color":"black","width":2},"thickness":0.8,"value":art["chegara"]*100}},
+                    value=display_val,
+                    number={"suffix": "%", "font": {"size": 26}},
+                    title={"text": "Fraud Score", "font": {"size": 13}},
+                    gauge={
+                        "axis": {"range": [0, 100], "tickvals": [0, 25, 50, 75, 99.5],
+                                 "ticktext": ["0", "25", "50", "75", "max"]},
+                        "bar": {"color": gauge_color},
+                        "steps": [
+                            {"range": [0,  thr*100],          "color": "#dcfce7"},
+                            {"range": [thr*100, block_thr*100],"color": "#fef9c3"},
+                            {"range": [block_thr*100, 100],    "color": "#fee2e2"},
+                        ],
+                        "threshold": {"line": {"color": "black", "width": 2},
+                                      "thickness": 0.8, "value": thr * 100},
+                    },
                 ))
-                fig.update_layout(height=220, margin=dict(t=30,b=10,l=10,r=10))
+                fig.update_layout(height=210, margin=dict(t=30, b=5, l=10, r=10))
                 st.plotly_chart(fig, use_container_width=True, key=f"gauge_{idx}")
 
-                if   decision == "BLOCK":  st.error(f"🚫 **BLOKLANDI**\nFraud ehtimoli juda yuqori")
-                elif decision == "REVIEW": st.warning(f"⚠️ **TEKSHIRUV**\nOperatorga yuborildi")
-                else:                      st.success(f"✅ **RUXSAT**\nOdatiy tranzaksiya")
+                if   decision == "BLOCK":  st.error(f"🚫 **BLOKLANDI**")
+                elif decision == "REVIEW": st.warning(f"⚠️ **TEKSHIRUV**")
+                else:                      st.success(f"✅ **RUXSAT**")
 
-                if actual == 1:
-                    st.error("📍 Haqiqiy: Fraud")
-                else:
-                    st.success("📍 Haqiqiy: Normal")
+                st.caption(conf_label)
+                st.caption(f"Haqiqiy: {'🔴 Fraud' if actual else '🟢 Normal'}  |  Natija: {out_icons[outcome]}")
 
-            # Pipeline stages
             with st.expander("🔄 Qayta ishlash bosqichlari"):
                 stage_df = pd.DataFrame(stage_ms, columns=["Bosqich", "Natija", "Vaqt (ms)"])
                 st.dataframe(stage_df, use_container_width=True, hide_index=True)
-                st.caption(f"⏱️ Jami qayta ishlash vaqti: **{total_ms} ms**")
+                st.caption(f"⏱️ Jami: **{total_ms} ms**  |  Model: DeepFraudNet 256→128→64→1")
 
         # ── Ledger ─────────────────────────────────────────────────────────
-        final_status = {"ALLOW":"SETTLED","REVIEW":"MANUAL_REVIEW_QUEUE","BLOCK":"DECLINED"}[decision]
+        final_status = {"ALLOW": "SETTLED", "REVIEW": "MANUAL_REVIEW_QUEUE", "BLOCK": "DECLINED"}[decision]
         ledger.append({
-            "#":       idx,
-            "Vaqt":    event_time.strftime("%H:%M:%S"),
-            "Merchant": f"{m_icon} {m_name}",
-            "Summa":   format_uzs(row["amount"]),
-            "Qurilma": row["device"],
+            "#":         idx,
+            "Vaqt":      event_time.strftime("%H:%M:%S"),
+            "Merchant":  f"{m_icon} {m_name}",
+            "Summa":     format_uzs(row["amount"]),
+            "Qurilma":   row["device"],
             "Lokatsiya": row["location"],
-            "Score %": f"{prob*100:.1f}",
-            "Qaror":   decision_label(decision),
-            "Holat":   status_label(final_status),
-            "Haqiqiy": "🔴 Fraud" if actual else "🟢 Normal",
-            "Natija":  "✅" if actual==int(decision in ("REVIEW","BLOCK")) else "❌",
+            "Score":     fmt_score(prob),
+            "Ishonch":   conf_label.split(" ")[1] if " " in conf_label else conf_label,
+            "Qaror":     decision_label(decision),
+            "Haqiqiy":   "🔴 Fraud" if actual else "🟢 Normal",
+            "Natija":    out_icons[outcome],
         })
-        log_ph.dataframe(pd.DataFrame(ledger).tail(15), use_container_width=True, hide_index=True, height=300)
+        log_ph.dataframe(
+            pd.DataFrame(ledger).tail(15),
+            use_container_width=True, hide_index=True, height=300,
+        )
 
         # ── Running probability chart ──────────────────────────────────────
         if len(probs_over_time) >= 2:
             with chart_ph.container():
-                prob_df = pd.DataFrame({
-                    "Tranzaksiya": list(range(1, len(probs_over_time)+1)),
-                    "P(fraud)": probs_over_time,
-                    "Haqiqiy": ["Fraud" if y else "Normal" for y in y_true_all],
-                })
+                xs = list(range(1, len(probs_over_time) + 1))
+                out_color = {"TP": "#22c55e", "TN": "#60a5fa", "FP": "#f59e0b", "FN": "#ef4444"}
+                marker_sym = {"TP": "circle", "TN": "circle", "FP": "x", "FN": "x"}
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=prob_df["Tranzaksiya"], y=prob_df["P(fraud)"],
-                                         mode="lines+markers",
-                                         marker=dict(color=["#ef4444" if p>0.5 else "#22c55e" for p in probs_over_time], size=10),
-                                         line=dict(color="#94a3b8", width=1.5), name="Fraud ehtimoli"))
-                fig.add_hline(y=art["chegara"], line_dash="dot", line_color="#f59e0b",
-                              annotation_text=f"Review chegarasi ({art['chegara']:.2f})")
-                fig.add_hline(y=max(art["chegara"]*1.6,0.70), line_dash="dot", line_color="#ef4444",
-                              annotation_text="Block chegarasi")
-                fig.update_layout(title="Oqimdagi fraud ehtimoli", xaxis_title="Tranzaksiya #",
-                                  yaxis_title="P(fraud)", yaxis=dict(range=[0,1]), height=280,
-                                  margin=dict(t=40,b=30))
+                # line
+                fig.add_trace(go.Scatter(
+                    x=xs, y=probs_over_time, mode="lines",
+                    line=dict(color="#94a3b8", width=1.5, dash="dot"), showlegend=False,
+                ))
+                # colored markers per outcome
+                for oc in ["TP", "TN", "FP", "FN"]:
+                    xi = [xs[i] for i, o in enumerate(outcome_all) if o == oc]
+                    yi = [probs_over_time[i] for i, o in enumerate(outcome_all) if o == oc]
+                    if xi:
+                        fig.add_trace(go.Scatter(
+                            x=xi, y=yi, mode="markers", name=oc,
+                            marker=dict(color=out_color[oc], size=12,
+                                        symbol=marker_sym[oc],
+                                        line=dict(width=1.5, color="white")),
+                        ))
+                fig.add_hline(y=thr, line_dash="dash", line_color="#f59e0b",
+                              annotation_text=f"Review {thr:.2f}",
+                              annotation_position="top right")
+                fig.add_hline(y=block_thr, line_dash="dash", line_color="#ef4444",
+                              annotation_text=f"Block {block_thr:.2f}",
+                              annotation_position="top right")
+                fig.update_layout(
+                    title="Fraud ehtimoli oqimi  (● TP/TN = to'g'ri  ✕ FP/FN = xato)",
+                    xaxis_title="Tranzaksiya #",
+                    yaxis=dict(range=[0, 1], title="P(fraud)",
+                               tickvals=[0, 0.25, 0.5, 0.75, 1.0],
+                               ticktext=["0%", "25%", "50%", "75%", "≤99.5%"]),
+                    height=300, margin=dict(t=45, b=30),
+                    legend=dict(orientation="h", y=-0.25),
+                )
                 st.plotly_chart(fig, use_container_width=True, key=f"prob_chart_{idx}")
 
-        progress_bar.progress(int(idx/len(stream)*100), f"{idx}/{len(stream)} tranzaksiya qayta ishlandi")
+        progress_bar.progress(
+            int(idx / len(stream) * 100),
+            f"{idx}/{len(stream)} tranzaksiya  |  TP:{counts['TP']} TN:{counts['TN']} FP:{counts['FP']} FN:{counts['FN']}",
+        )
         time.sleep(float(pause))
 
     # ── Final summary ──────────────────────────────────────────────────────
     met = oqim_metrikalari(y_true_all, y_pred_all, probs_over_time)
-    st.success(f"✅ Simulyatsiya yakunlandi — {len(stream)} tranzaksiya")
-    k1,k2,k3,k4,k5 = st.columns(5)
-    k1.metric("Aniqlik",  f"{met['accuracy']*100:.1f}%")
-    k2.metric("Precision",f"{met['precision']*100:.1f}%")
-    k3.metric("Recall",   f"{met['recall']*100:.1f}%")
-    k4.metric("F1",       f"{met['f1']:.3f}")
-    k5.metric("ROC-AUC",  f"{met['roc_auc']:.3f}" if met["roc_auc"] else "—")
+    n_fraud = sum(y_true_all); n_total = len(y_true_all)
+    st.success(f"✅ Simulyatsiya yakunlandi — {n_total} ta tranzaksiya  |  Haqiqiy fraud: {n_fraud}  |  Normal: {n_total - n_fraud}")
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Aniqlik",   f"{met['accuracy']*100:.1f}%")
+    k2.metric("Precision", f"{met['precision']*100:.1f}%" if met["precision"] else "—")
+    k3.metric("Recall",    f"{met['recall']*100:.1f}%"    if met["recall"]    else "—")
+    k4.metric("F1",        f"{met['f1']:.3f}"             if met["f1"]        else "—")
+    k5.metric("ROC-AUC",   f"{met['roc_auc']:.3f}"        if met["roc_auc"]   else "—")
+
+    col_cm, col_info = st.columns([1, 1.5])
+    with col_cm:
+        st.markdown("**Natijalar matritsasi:**")
+        cm_data = [[counts["TN"], counts["FP"]], [counts["FN"], counts["TP"]]]
+        fig_cm = go.Figure(go.Heatmap(
+            z=cm_data, x=["Pred: Normal", "Pred: Fraud"],
+            y=["Real: Normal", "Real: Fraud"],
+            text=[[str(v) for v in row] for row in cm_data],
+            texttemplate="%{text}", colorscale="Blues", showscale=False,
+        ))
+        fig_cm.update_layout(height=220, margin=dict(t=10, b=10))
+        st.plotly_chart(fig_cm, use_container_width=True, key="final_cm")
+    with col_info:
+        st.markdown("**Qarorlar bo'yicha:**")
+        st.markdown(f"""
+| Qaror | Soni | Ma'nosi |
+|-------|------|---------|
+| ✅ ALLOW | **{counts['ALLOW']}** | O'tkazildi |
+| ⚠️ REVIEW | **{counts['REVIEW']}** | Operatorga yuborildi |
+| 🚫 BLOCK | **{counts['BLOCK']}** | Bloklandi |
+| TP | **{counts['TP']}** | To'g'ri aniqlangan fraud |
+| TN | **{counts['TN']}** | To'g'ri o'tkazilgan normal |
+| FP | **{counts['FP']}** | Noto'g'ri bloklangan (**xato alarm**) |
+| FN | **{counts['FN']}** | O'tib ketgan fraud (**xavfli xato**) |
+        """)
+        st.caption("💡 Model hech qachon 100% ishonch bilan aytmaydi — bu statistik printsip.")
 
 
 def render_manual_score(art: dict) -> None:
@@ -928,18 +1286,18 @@ def render_manual_score(art: dict) -> None:
         "User Daily Limit Exceeded": int(limit), "Recent High-Value Transaction Flags": int(high_val),
         "Past Fraudulent Behavior Flags": int(past_fr), "Normalized Transaction Amount": 0.0,
     }
-    result = tranzaksiyani_tekshir(art, tx_input)
+    result = qolda_tranzaksiyani_tekshir(art, tx_input)
     prob   = result["ehtimol"]; decision = result["qaror"]
 
     c1,c2,c3 = st.columns(3)
-    c1.metric("Fraud ehtimolligi", f"{prob*100:.1f}%")
+    c1.metric("Fraud ehtimolligi", fmt_score(prob))
     c2.metric("Xavf darajasi",     result["xavf"])
     c3.metric("Qaror",             decision_label(decision))
 
     col_gauge, col_signals = st.columns([1, 1.4])
     with col_gauge:
         gc = {"LOW":"#22c55e","MEDIUM":"#f59e0b","HIGH":"#ef4444"}[result["xavf"]]
-        fig=go.Figure(go.Indicator(mode="gauge+number",value=round(prob*100,1),
+        fig=go.Figure(go.Indicator(mode="gauge+number",value=round(clamp_probability(prob)*100,1),
             number={"suffix":"%"},title={"text":"Fraud Score"},
             gauge={"axis":{"range":[0,100]},"bar":{"color":gc},
                    "steps":[{"range":[0,50],"color":"#dcfce7"},{"range":[50,80],"color":"#fef9c3"},{"range":[80,100],"color":"#fee2e2"}],
@@ -953,9 +1311,9 @@ def render_manual_score(art: dict) -> None:
         for sig_name, sig_score, sig_desc in compute_risk_signals(fake_row):
             st.markdown(risk_bar_md(sig_name, sig_score, sig_desc), unsafe_allow_html=True)
 
-    if   decision=="BLOCK":  st.error(f"🚫 Tranzaksiya bloklandi. Fraud ehtimoli juda yuqori ({prob*100:.1f}%).")
-    elif decision=="REVIEW": st.warning(f"⚠️ Operator tekshiruviga yuborildi. Ehtimol: {prob*100:.1f}%.")
-    else:                    st.success(f"✅ Tranzaksiya ruxsat berildi. Xavf darajasi past ({prob*100:.1f}%).")
+    if   decision=="BLOCK":  st.error(f"🚫 Tranzaksiya bloklandi. Fraud ehtimoli juda yuqori ({fmt_score(prob)}).")
+    elif decision=="REVIEW": st.warning(f"⚠️ Operator tekshiruviga yuborildi. Ehtimol: {fmt_score(prob)}.")
+    else:                    st.success(f"✅ Tranzaksiya ruxsat berildi. Xavf darajasi past ({fmt_score(prob)}).")
 
 
 def render_live(art: dict, df: pd.DataFrame) -> None:
@@ -986,11 +1344,11 @@ def sidebar(art: dict) -> None:
         st.metric("Threshold", f"{m['chegara']:.2f}")
         st.divider()
         st.caption(f"O'rgatilgan: {art['orgatish_sanasi']}")
-        st.caption(f"Train: {art['orgatish_soni']:,} | Test: {art['test_soni']:,}")
+        st.caption(f"Train: {art['orgatish_soni']:,} | Val: {art.get('validatsiya_soni', 0):,} | Test: {art['test_soni']:,}")
         st.caption(f"Fraud ulushi: {art['fraud_ulushi']*100:.1f}%")
         st.divider()
-        st.caption("Arxitektura: 128→64→32→1")
-        st.caption("Optimizer: Adam (lr=0.001)")
+        st.caption(f"Model version: v{art.get('model_version', MODEL_VERSION)}")
+        st.caption("Optimizer: Adam + early stopping")
 
 
 def main() -> None:
