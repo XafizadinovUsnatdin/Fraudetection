@@ -323,6 +323,8 @@ class DeepFraudNet:
 
     def predict_proba(self, df: pd.DataFrame) -> np.ndarray:
         y_hat, _ = self._forward(self.transform(df))
+        # cap at 0.995 so displayed score never rounds to 100%
+        y_hat = np.clip(y_hat, 0.005, 0.995)
         return np.column_stack([1-y_hat, y_hat])
 
     @property
