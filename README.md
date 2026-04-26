@@ -23,7 +23,7 @@ Joriy ML sozlamalari:
 - Hajm: 50,000 qator, 23 ustun
 - Fraud ulushi: 5%
 - Model: Random Forest + 5-fold stratifikatsiyali cross-validation
-- Test ROC-AUC: taxminan 0.90, ya'ni 100% mukammal emas va real hayotga yaqinroq
+- Test ROC-AUC: taxminan 0.90,
 
 Datasetni qayta yaratish:
 
