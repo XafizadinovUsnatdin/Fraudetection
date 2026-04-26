@@ -2,6 +2,8 @@
 #first version https://safenetfraud.streamlit.app/
 random forest model
 
+second version deep learning https://fraudetectionsafenet.streamlit.app/
+  
 ## Streamlit Fraud Detection App
 
 
