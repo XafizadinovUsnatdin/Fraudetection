@@ -810,7 +810,7 @@ Har bir to'lov **real bank tizimidagi kabi** 6 ta bosqichdan o'tadi va SafeNet h
                            "threshold":{"line":{"color":"black","width":2},"thickness":0.8,"value":art["chegara"]*100}},
                 ))
                 fig.update_layout(height=220, margin=dict(t=30,b=10,l=10,r=10))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"gauge_{idx}")
 
                 if   decision == "BLOCK":  st.error(f"🚫 **BLOKLANDI**\nFraud ehtimoli juda yuqori")
                 elif decision == "REVIEW": st.warning(f"⚠️ **TEKSHIRUV**\nOperatorga yuborildi")
@@ -864,7 +864,7 @@ Har bir to'lov **real bank tizimidagi kabi** 6 ta bosqichdan o'tadi va SafeNet h
                 fig.update_layout(title="Oqimdagi fraud ehtimoli", xaxis_title="Tranzaksiya #",
                                   yaxis_title="P(fraud)", yaxis=dict(range=[0,1]), height=280,
                                   margin=dict(t=40,b=30))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"prob_chart_{idx}")
 
         progress_bar.progress(int(idx/len(stream)*100), f"{idx}/{len(stream)} tranzaksiya qayta ishlandi")
         time.sleep(float(pause))
